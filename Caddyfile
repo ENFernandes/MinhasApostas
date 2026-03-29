@@ -1,0 +1,82 @@
+# Caddyfile — Sports Betting AI
+# Desenvolvimento local: http://localhost
+
+:80 {
+    # ─────────────────────────────────────────
+    # Frontend React
+    # ─────────────────────────────────────────
+    handle / {
+        reverse_proxy frontend:3000
+    }
+
+    handle /app/* {
+        reverse_proxy frontend:3000
+    }
+
+    # ─────────────────────────────────────────
+    # C# Data Collector API
+    # ─────────────────────────────────────────
+    handle /api/matches/* {
+        uri strip_prefix /api
+        reverse_proxy data-collector:8080
+    }
+
+    handle /api/bets/* {
+        uri strip_prefix /api
+        reverse_proxy data-collector:8080
+    }
+
+    handle /api/stats/* {
+        uri strip_prefix /api
+        reverse_proxy data-collector:8080
+    }
+
+    handle /api/collector/* {
+        uri strip_prefix /api/collector
+        reverse_proxy data-collector:8080
+    }
+
+    handle /swagger/* {
+        reverse_proxy data-collector:8080
+    }
+
+    handle /health/collector {
+        reverse_proxy data-collector:8080/health
+    }
+
+    # ─────────────────────────────────────────
+    # Python Analysis Engine
+    # ─────────────────────────────────────────
+    handle /api/analysis/* {
+        uri strip_prefix /api/analysis
+        reverse_proxy analysis-engine:8090
+    }
+
+    handle /health/analysis {
+        reverse_proxy analysis-engine:8090/health
+    }
+
+    # ─────────────────────────────────────────
+    # Health geral
+    # ─────────────────────────────────────────
+    handle /health {
+        respond "OK" 200
+    }
+
+    # ─────────────────────────────────────────
+    # Headers de segurança
+    # ─────────────────────────────────────────
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+
+    # Logs
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+}

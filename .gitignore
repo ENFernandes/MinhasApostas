@@ -1,0 +1,49 @@
+# .NET
+
+## Build Results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr]/
+[Aa][Rr]/
+*.dll
+*.exe
+*.pdb
+*.user
+*.suo
+*.cache
+*.log
+
+## NuGet Packages
+*.nupkg
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Secrets
+*.env
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+## Logs
+*.log
+logs/
+.claude
+.env
+*.png

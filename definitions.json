@@ -1,0 +1,139 @@
+{
+  "vhosts": [
+    { "name": "/" }
+  ],
+
+  "exchanges": [
+    {
+      "name": "sports.events",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "analysis.results",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "sports.events.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+
+  "queues": [
+    {
+      "name": "football.matches",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "sports.events.dlx",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "tennis.matches",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "sports.events.dlx",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "odds.updates",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "sports.events.dlx",
+        "x-message-ttl": 3600000
+      }
+    },
+    {
+      "name": "recommendations",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "sports.events.dlx",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "dead.letters",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+
+  "bindings": [
+    {
+      "source": "sports.events",
+      "vhost": "/",
+      "destination": "football.matches",
+      "destination_type": "queue",
+      "routing_key": "football.match.new",
+      "arguments": {}
+    },
+    {
+      "source": "sports.events",
+      "vhost": "/",
+      "destination": "tennis.matches",
+      "destination_type": "queue",
+      "routing_key": "tennis.match.new",
+      "arguments": {}
+    },
+    {
+      "source": "sports.events",
+      "vhost": "/",
+      "destination": "odds.updates",
+      "destination_type": "queue",
+      "routing_key": "odds.updated",
+      "arguments": {}
+    },
+    {
+      "source": "analysis.results",
+      "vhost": "/",
+      "destination": "recommendations",
+      "destination_type": "queue",
+      "routing_key": "recommendation.ready",
+      "arguments": {}
+    },
+    {
+      "source": "sports.events.dlx",
+      "vhost": "/",
+      "destination": "dead.letters",
+      "destination_type": "queue",
+      "routing_key": "#",
+      "arguments": {}
+    }
+  ],
+
+  "policies": [
+    {
+      "vhost": "/",
+      "name": "ha-all",
+      "pattern": ".*",
+      "definition": {
+        "ha-mode": "all",
+        "ha-sync-mode": "automatic"
+      },
+      "priority": 0,
+      "apply-to": "queues"
+    }
+  ]
+}

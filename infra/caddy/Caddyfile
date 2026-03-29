@@ -1,0 +1,32 @@
+{
+    auto_https off
+}
+
+:80 {
+    # API - Data Collector (matches, bets, stats, recommendations)
+    @api path /api/matches /api/matches/* /api/bets /api/bets/* /api/stats /api/stats/* /api/recommendations /api/recommendations/*
+    
+    # API - Collector internal
+    @collector_api path /api/collector /api/collector/*
+    
+    # API - Analysis Engine
+    @analysis_api path /api/analysis /api/analysis/*
+    
+    # Swagger
+    @swagger path /swagger /swagger/*
+    
+    # Health endpoints
+    @health_collector path /health/collector
+    @health_analysis path /health/analysis
+
+    reverse_proxy @api sba-collector:8080
+    reverse_proxy @collector_api sba-collector:8080
+    reverse_proxy @analysis_api sba-analysis:8090
+    reverse_proxy @swagger sba-collector:8080
+    reverse_proxy @health_collector sba-collector:8080
+    reverse_proxy @health_analysis sba-analysis:8090
+    reverse_proxy /health sba-analysis:8090
+
+    # Frontend (catch-all)
+    reverse_proxy sba-frontend:3000
+}
