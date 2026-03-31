@@ -108,17 +108,18 @@ class OddsConsumer:
 
 
 async def handle_odds_update(message: dict) -> None:
-    """Handle odds update messages.
+    """Handle odds update — re-triggers analysis for the affected match."""
+    from app.services.analysis_service import AnalysisService
 
-    Args:
-        message: The odds update data
-    """
-    logger.info(
-        "Processing odds update",
-        match_id=message.get("match_id"),
-        bookmaker=message.get("bookmaker"),
-        market=message.get("market"),
-    )
+    match_id = message.get("match_id")
+    logger.info("Processing odds update", match_id=match_id)
 
-    # Re-calculate value for active matches
-    # If value changed > 2%, trigger re-analysis
+    if not match_id:
+        logger.warning("odds.updated message missing match_id")
+        return
+
+    try:
+        service = AnalysisService()
+        await service.analyze_match(str(match_id))
+    except Exception as e:
+        logger.error("Error re-analyzing match after odds update", match_id=match_id, error=str(e))

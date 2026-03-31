@@ -3,7 +3,8 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 
 class MatchData(BaseModel):
@@ -24,11 +25,14 @@ class MatchData(BaseModel):
 class ModelProbabilities(BaseModel):
     """Probabilities from statistical models."""
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     home: float = Field(..., ge=0, le=1)
     draw: float = Field(..., ge=0, le=1)
     away: float = Field(..., ge=0, le=1)
     over_2_5: float = Field(..., ge=0, le=1)
     btts: float = Field(..., ge=0, le=1)
+    data_source: str = "implied_probability"  # poisson_historical | elo_hard | elo_clay | implied_probability
 
 
 class OddsData(BaseModel):
@@ -51,6 +55,8 @@ class AnalysisRequest(BaseModel):
 class RecommendedMarket(BaseModel):
     """Recommended betting market."""
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     market: str
     outcome: str
     bookmaker: str
@@ -66,6 +72,8 @@ class RecommendedMarket(BaseModel):
 class AlternativeMarket(BaseModel):
     """Alternative betting market."""
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     market: str
     outcome: str
     odd: float
@@ -75,6 +83,8 @@ class AlternativeMarket(BaseModel):
 
 class AnalysisResponse(BaseModel):
     """Response from match analysis."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     match_id: str
     sport: str

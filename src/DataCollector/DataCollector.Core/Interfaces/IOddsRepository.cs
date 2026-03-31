@@ -11,4 +11,5 @@ public interface IOddsRepository : IRepository<OddsEntity>
     Task<IEnumerable<OddsEntity>> GetByMatchAsync(Guid matchId, CancellationToken cancellationToken = default);
     Task<IEnumerable<OddsEntity>> GetLatestByMatchAsync(Guid matchId, CancellationToken cancellationToken = default);
     Task BulkInsertAsync(IEnumerable<OddsEntity> odds, CancellationToken cancellationToken = default);
+    Task ReplaceForMatchesAsync(IEnumerable<Guid> matchIds, IEnumerable<OddsEntity> odds, CancellationToken cancellationToken = default);
 }

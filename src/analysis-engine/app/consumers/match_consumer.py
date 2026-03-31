@@ -129,14 +129,32 @@ async def handle_football_match(message: dict) -> None:
 
 
 async def handle_tennis_match(message: dict) -> None:
-    """Handle new tennis match messages."""
+    """Handle new tennis match messages and trigger analysis."""
+    from app.db.database import get_db_session
+    from app.db.repositories import MatchRepository
+    from app.services.analysis_service import AnalysisService
+
+    external_id = message.get("ExternalId") or message.get("external_id")
     logger.info(
         "Processing tennis match",
-        match_id=message.get("ExternalId") or message.get("external_id"),
+        match_id=external_id,
         player1=message.get("HomeTeam") or message.get("home_team"),
         player2=message.get("AwayTeam") or message.get("away_team"),
     )
 
-    # Similar implementation for tennis
-    # For now, just log
-    logger.info("Tennis match processing not yet fully implemented")
+    try:
+        async with get_db_session() as db:
+            match_repo = MatchRepository(db)
+            match = await match_repo.get_by_external_id(str(external_id), "tennis")
+
+            if not match:
+                logger.warning("Tennis match not yet in DB, skipping analysis", external_id=external_id)
+                return
+
+            logger.info("Tennis match found, triggering analysis", match_id=str(match.id))
+
+        service = AnalysisService()
+        await service.analyze_match(str(match.id))
+
+    except Exception as e:
+        logger.error("Error handling tennis match", error=str(e), exc_info=True)

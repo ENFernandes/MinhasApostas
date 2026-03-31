@@ -3,7 +3,8 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
+from fastapi import status as http_status
 from structlog import get_logger
 
 from app.db.database import get_db_session
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/analysis", tags=["analysis"])
 analysis_service = AnalysisService()
 
 
-@router.post("/match/{match_id}", response_model=AnalysisResponse)
+@router.post("/match/{match_id}", response_model=AnalysisResponse, response_model_by_alias=True)
 async def analyze_match_endpoint(match_id: str, request: AnalysisRequest | None = None):
     """Perform on-demand analysis of a match.
 
@@ -37,7 +38,7 @@ async def analyze_match_endpoint(match_id: str, request: AnalysisRequest | None 
         
         if not result:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+                status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Match not found or analysis failed",
             )
 
@@ -48,12 +49,12 @@ async def analyze_match_endpoint(match_id: str, request: AnalysisRequest | None 
     except Exception as e:
         logger.error("Analysis failed", match_id=match_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Analysis failed: {str(e)}",
         )
 
 
-@router.get("/match/{match_id}/latest", response_model=AnalysisResponse)
+@router.get("/match/{match_id}/latest", response_model=AnalysisResponse, response_model_by_alias=True)
 async def get_latest_analysis(match_id: str):
     """Get the latest analysis for a match.
 
@@ -71,7 +72,7 @@ async def get_latest_analysis(match_id: str):
             
             if not match:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
+                    status_code=http_status.HTTP_404_NOT_FOUND,
                     detail="Match not found",
                 )
 
@@ -80,7 +81,7 @@ async def get_latest_analysis(match_id: str):
 
             if not rec:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
+                    status_code=http_status.HTTP_404_NOT_FOUND,
                     detail="No analysis found for this match",
                 )
 
@@ -123,7 +124,7 @@ async def get_latest_analysis(match_id: str):
     except Exception as e:
         logger.error("Failed to get analysis", match_id=match_id, error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get analysis: {str(e)}",
         )
 
@@ -137,33 +138,66 @@ async def get_recommendations(status: str = "PENDING", limit: int = 50):
         limit: Maximum number of results
 
     Returns:
-        List of recommendations
+        List of recommendations in a frontend‑friendly shape.
     """
     try:
         async with get_db_session() as db:
             repo = RecommendationRepository(db)
+            # For já, o repositório trata apenas de recomendações PENDING.
+            # O parâmetro `status` é aceite mas ainda não há filtro dinâmico.
             recommendations = await repo.get_active(limit=limit)
-            
-            return [
-                {
-                    "id": str(r.id),
-                    "match_id": str(r.match_id),
-                    "market": r.market,
-                    "outcome": r.outcome,
-                    "bookmaker": r.bookmaker,
-                    "odd": r.odd_decimal,
-                    "value": r.value,
-                    "confidence": r.confidence,
-                    "stake": r.stake_euros,
-                    "reasoning": r.reasoning,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                }
-                for r in recommendations
-            ]
+
+            normalized: list[dict] = []
+            for r in recommendations:
+                try:
+                    odd_decimal = getattr(r, "odd_decimal", None)
+                    value = getattr(r, "value", None)
+                    confidence = getattr(r, "confidence", None)
+                    stake_euros = getattr(r, "stake_euros", None)
+                    reasoning = getattr(r, "reasoning", None)
+
+                    normalized.append(
+                        {
+                            "id": str(getattr(r, "id")),
+                            "match_id": str(getattr(r, "match_id")),
+                            "market": getattr(r, "market", ""),
+                            "outcome": getattr(r, "outcome", ""),
+                            "bookmaker": getattr(r, "bookmaker", None),
+                            # odds / value / stake
+                            "odd": float(odd_decimal or 0),
+                            "odd_decimal": float(odd_decimal or 0),
+                            "value": float(value or 0),
+                            "confidence": int(confidence or 0),
+                            "stake_euros": float(stake_euros or 0),
+                            "reasoning": reasoning or "",
+                            "created_at": (
+                                r.created_at.isoformat() if getattr(r, "created_at", None) else None
+                            ),
+                            # campos extra, opcionais para o frontend
+                            "status": getattr(r, "status", "PENDING"),
+                            "model_probability": float(getattr(r, "model_probability", 0) or 0),
+                            "implied_probability": float(
+                                getattr(r, "implied_probability", 0) or 0
+                            ),
+                            "kelly_fraction": float(
+                                getattr(r, "kelly_fraction", 0) or 0
+                            ),
+                        }
+                    )
+                except Exception as inner:
+                    # Falha numa recomendação específica não deve partir todo o endpoint.
+                    logger.error(
+                        "Failed to serialize recommendation",
+                        error=str(inner),
+                        recommendation_id=str(getattr(r, "id", "unknown")),
+                    )
+                    continue
+
+            return normalized
 
     except Exception as e:
         logger.error("Failed to get recommendations", error=str(e))
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get recommendations: {str(e)}",
         )

@@ -1,5 +1,6 @@
 """Anthropic LLM provider implementation."""
 
+import asyncio
 import os
 import time
 
@@ -91,15 +92,13 @@ class AnthropicProvider:
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < MAX_RETRIES - 1:
-                    # Rate limited - wait and retry
-                    wait_time = 2 ** attempt
-                    time.sleep(wait_time)
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 raise
 
             except Exception:
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 raise
 

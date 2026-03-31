@@ -13,6 +13,7 @@ public class TennisCollectorJob : IJobService
 {
     private readonly ITennisApiClient _tennisClient;
     private readonly IMatchRepository _matchRepository;
+    private readonly IMessageQueuePublisher _messageQueue;
     private readonly ILogger<TennisCollectorJob> _logger;
     private readonly string _apiKey;
     private readonly SportsBettingDbContext _dbContext;
@@ -24,12 +25,14 @@ public class TennisCollectorJob : IJobService
     public TennisCollectorJob(
         ITennisApiClient tennisClient,
         IMatchRepository matchRepository,
+        IMessageQueuePublisher messageQueue,
         ILogger<TennisCollectorJob> logger,
         IConfiguration configuration,
         SportsBettingDbContext dbContext)
     {
         _tennisClient = tennisClient;
         _matchRepository = matchRepository;
+        _messageQueue = messageQueue;
         _logger = logger;
         _apiKey = configuration["ApiKeys:Tennis"] ?? throw new InvalidOperationException("Tennis API key not configured");
         _dbContext = dbContext;
@@ -172,7 +175,27 @@ public class TennisCollectorJob : IJobService
 
             await _matchRepository.UpsertAsync(match, cancellationToken);
 
-            _logger.LogInformation("Successfully processed tennis match: {Home} vs {Away} at {Time} - {Competition}", 
+            try
+            {
+                await _messageQueue.PublishAsync(
+                    "sports.events",
+                    "tennis.match.new",
+                    new
+                    {
+                        ExternalId = match.ExternalId,
+                        Sport = "tennis",
+                        HomeTeam = homePlayer.Name,
+                        AwayTeam = awayPlayer.Name,
+                        CommenceTime = match.CommenceTime,
+                    },
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to publish tennis.match.new for {ExternalId}", match.ExternalId);
+            }
+
+            _logger.LogInformation("Successfully processed tennis match: {Home} vs {Away} at {Time} - {Competition}",
                 fixture.EventFirstPlayer, fixture.EventSecondPlayer, commenceTime, fixture.TournamentName);
         }
         catch (Exception ex)

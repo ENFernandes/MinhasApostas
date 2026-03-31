@@ -14,7 +14,7 @@ const defaultHeaders = {
 }
 
 // Matches
-export function useMatches(from?: Date, to?: Date, sport?: string) {
+export function useMatches(from?: Date, to?: Date, sport?: string, onlyWithOdds?: boolean) {
   const params = new URLSearchParams()
   const now = new Date()
   const defaultFrom = now // momento atual, não meia-noite
@@ -27,9 +27,10 @@ export function useMatches(from?: Date, to?: Date, sport?: string) {
   params.append('from', fromDate.toISOString())
   params.append('to', toDate.toISOString())
   if (sport && sport !== 'all') params.append('sport', sport)
+  if (onlyWithOdds) params.append('onlyWithOdds', 'true')
   
   return useQuery({
-    queryKey: ['matches', { from, to, sport }],
+    queryKey: ['matches', { from, to, sport, onlyWithOdds }],
     queryFn: async (): Promise<Match[]> => {
       const res = await fetch(`${API_BASE}/matches/upcoming?${params}`, {
         headers: defaultHeaders,
@@ -136,7 +137,7 @@ export function useBetHistory() {
   return useQuery({
     queryKey: ['bets'],
     queryFn: async (): Promise<BetResult[]> => {
-      const res = await fetch(`${API_BASE}/recommendations`, {
+      const res = await fetch(`${API_BASE}/bets`, {
         headers: defaultHeaders,
       })
       if (!res.ok) throw new Error('Failed to fetch bet history')
@@ -149,7 +150,7 @@ export function usePendingBets() {
   return useQuery({
     queryKey: ['bets', 'pending'],
     queryFn: async (): Promise<BetResult[]> => {
-      const res = await fetch(`${API_BASE}/recommendations?status=PENDING`, {
+      const res = await fetch(`${API_BASE}/bets/pending`, {
         headers: defaultHeaders,
       })
       if (!res.ok) throw new Error('Failed to fetch pending bets')

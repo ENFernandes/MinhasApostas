@@ -16,6 +16,13 @@ public interface IOddsApiClient
         [Query] bool all = false);
 
     /// <summary>
+    /// Gets list of available sports (without query params).
+    /// Some Odds API deployments reject boolean query serialization for 'all=false'.
+    /// </summary>
+    [Get("/sports")]
+    Task<ApiResponse<List<SportDto>>> GetSportsAsync();
+
+    /// <summary>
     /// Gets odds for a specific sport.
     /// </summary>
     [Get("/sports/{sport}/odds")]

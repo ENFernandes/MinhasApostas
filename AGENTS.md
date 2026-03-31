@@ -1,4 +1,4 @@
-# CLAUDE.md — Sports Betting AI System
+# AGENTS.md — Sports Betting AI System
 
 > Este ficheiro é lido pelo OpenCode em cada sessão. Define o stack, convenções,
 > estrutura do projeto e regras que todos os agentes devem seguir sem excepção.
@@ -167,16 +167,87 @@ sports-betting-ai/
 
 ---
 
-## APIs externas — referência rápida
+## Fontes de dados — arquitectura por camada
 
-| API | Base URL | Auth | Rate limit |
-|-----|----------|------|------------|
-| football-data.org | `https://api.football-data.org/v4` | Header `X-Auth-Token` | 10 req/min (free) |
-| api-tennis.com | `https://api.api-tennis.com/tennis/` | Query `APIkey` | 200 req/dia (free) |
-| the-odds-api.com | `https://api.the-odds-api.com/v4` | Query `apiKey` | 500 créditos/mês (free) |
+O sistema usa uma estratégia de **camadas complementares**: cada fonte serve um
+propósito distinto. O C# Collector sabe exactamente qual fonte usar para cada tipo
+de dado. Nunca duplicar chamadas — se um dado existe em cache ou em fonte mais barata, usar essa.
+
+---
+
+### Camada 1 — Dados em tempo real (Collectors C# com Refit)
+
+| API | Base URL | Auth | Rate limit | Papel no sistema |
+|-----|----------|------|------------|-----------------|
+| football-data.org | `https://api.football-data.org/v4` | Header `X-Auth-Token` | 10 req/min (free) | Fixtures, resultados, standings das grandes ligas |
+| api-football (api-sports.io) | `https://v3.football.api-sports.io` | Header `x-apisports-key` | 100 req/dia (free) | Estatísticas detalhadas por jogo: xG, remates, posse, lineups |
+| api-tennis.com | `https://api.api-tennis.com/tennis/` | Query `APIkey` | 200 req/dia (free) | Fixtures e scores ATP/WTA |
+| the-odds-api.com | `https://api.the-odds-api.com/v4` | Query `apiKey` | 500 créditos/mês (free) | Odds em tempo real — fonte primária de odds |
+| TheRundown API | `https://therundown-therundown-v1.p.rapidapi.com` | Header `x-rapidapi-key` | 20.000 data points/dia (free) | Odds backup + scores ao vivo multi-desporto |
+
+**Regra de uso dos créditos — obrigatória:**
+- football-data.org: fixtures e resultados (baixo volume)
+- api-football: apenas estatísticas detalhadas pós-jogo e lineups pré-jogo
+- the-odds-api: odds pré-jogo (a 2h do início) + in-play (cada 5 min)
+- TheRundown: fallback de odds se the-odds-api esgotar créditos
+
+---
+
+### Camada 2 — Dados históricos para treino do modelo (Python — carregamento único)
+
+| Fonte | Tipo | Acesso | Papel no sistema |
+|-------|------|--------|-----------------|
+| StatsBomb Open Data | JSON (GitHub) | Sem auth — clone do repo | Treino do modelo xG: eventos ao nível do passe, cada remate com coordenadas, pressão defensiva |
+| football-data.co.uk | CSV (HTTP directo) | Sem auth — URL directa | Resultados históricos de 40+ ligas desde 1993: base para calibrar modelo Poisson e calcular médias de golos |
+| Jeff Sackmann tennis_atp / tennis_wta | CSV (GitHub) | Sem auth — clone do repo | Histórico ATP/WTA desde 1968: base para calcular e calibrar ELO por superfície |
+| OpenFootball / football.db | JSON/CSV (GitHub) | Sem auth — clone do repo | Calendários 2025/26 das ligas europeias como backup de fixtures |
+
+**Como usar no Python:**
+- Dados históricos carregados **uma vez** na startup via script `db/seeds/load_historical.py`
+- Guardados em tabelas dedicadas: `historical_matches`, `historical_events`, `player_elo_history`
+- Actualizados mensalmente via job Hangfire `HistoricalDataSyncJob`
+- StatsBomb: usar biblioteca `statsbombpy` (`pip install statsbombpy`)
+- football-data.co.uk: `pandas.read_csv(url)` directo, sem API key
+
+---
+
+### Camada 3 — Enriquecimento contextual (Python — chamadas pontuais)
+
+| Fonte | Tipo | Acesso | Papel no sistema |
+|-------|------|--------|-----------------|
+| TheSportsDB | REST JSON (free) | Sem auth (tier 1) | Logos de equipas, informação de jogadores, contexto de torneios |
+| Sportmonks (free plan) | REST JSON | API key | Backup de fixtures para Scottish Premiership e Danish Superliga |
+
+---
+
+### Decisão de routing por tipo de dado
+
+```
+Preciso de fixtures amanhã?
+  → football-data.org (principal) ou api-football (backup)
+
+Preciso de stats de um jogo (xG, remates, posse)?
+  → api-football /fixtures/statistics
+
+Preciso de lineups confirmadas (1-2h antes)?
+  → api-football /fixtures/lineups
+
+Preciso de odds actuais?
+  → the-odds-api (principal) → TheRundown (fallback)
+
+Preciso de calibrar modelo Poisson com dados históricos?
+  → football-data.co.uk CSV + StatsBomb events
+
+Preciso de calcular ELO de um tenista?
+  → Jeff Sackmann CSV (tennis_atp / tennis_wta)
+
+Preciso de xG de um remate específico?
+  → modelo treinado com StatsBomb Open Data
+```
 
 Todas as API keys são lidas de variáveis de ambiente. Ver `.env.example`.
-O C# usa Refit para estes três clients.
+O C# usa Refit para todas as APIs da Camada 1.
+O Python usa `httpx`, `pandas.read_csv()` e `statsbombpy` para as Camadas 2 e 3.
 
 ---
 

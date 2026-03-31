@@ -1,9 +1,38 @@
 """ELO rating system for tennis players."""
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 INITIAL_ELO = 1500.0
 K_FACTOR_NORMAL = 32.0
 K_FACTOR_GRAND_SLAM = 16.0
+
+
+async def get_player_elo(
+    db: AsyncSession,
+    player_name: str,
+    surface: str,
+) -> float:
+    """Busca o ELO actual do jogador na superfície via view latest_player_elo.
+
+    Fallback: 1500.0 (ELO inicial) se jogador não encontrado.
+    """
+    result = await db.execute(
+        text("""
+            SELECT elo FROM latest_player_elo
+            WHERE player_name ILIKE :name
+              AND surface = :surface
+            LIMIT 1
+        """),
+        {"name": f"%{player_name}%", "surface": surface},
+    )
+    row = result.fetchone()
+    return float(row.elo) if row else INITIAL_ELO
+
+
+def probabilidade_vitoria_elo(elo_a: float, elo_b: float) -> float:
+    """Probabilidade do jogador A vencer o jogador B com base em ELO."""
+    return 1.0 / (1.0 + 10.0 ** ((elo_b - elo_a) / 400.0))
 
 
 def calculate_elo_probability(elo_a: float, elo_b: float) -> float:

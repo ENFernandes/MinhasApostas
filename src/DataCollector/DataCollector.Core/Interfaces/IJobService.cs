@@ -15,4 +15,9 @@ public interface IJobService : IScopedService
     /// Gets the unique job identifier.
     /// </summary>
     string JobId { get; }
+
+    /// <summary>
+    /// Executes the job logic.
+    /// </summary>
+    Task ExecuteAsync(CancellationToken cancellationToken = default);
 }

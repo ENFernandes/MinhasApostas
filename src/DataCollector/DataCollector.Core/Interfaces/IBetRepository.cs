@@ -12,6 +12,12 @@ public interface IBetRepository
     /// </summary>
     Task<IEnumerable<BetEntity>> GetSettledBetsAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets all pending bets (Result == PENDING).
+    /// </summary>
+    Task<IEnumerable<BetEntity>> GetPendingBetsAsync(
+        CancellationToken cancellationToken = default);
     
     /// <summary>
     /// Gets a bet by ID.

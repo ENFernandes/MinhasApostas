@@ -25,7 +25,12 @@ public class MatchRepository : IMatchRepository
     }
 
     /// <inheritdoc />
-    public async Task<IEnumerable<MatchEntity>> GetUpcomingAsync(DateTime from, DateTime to, string? sport = null, CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<MatchEntity>> GetUpcomingAsync(
+        DateTime from,
+        DateTime to,
+        string? sport = null,
+        bool onlyWithOdds = false,
+        CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         var query = _context.Matches
@@ -45,6 +50,11 @@ public class MatchRepository : IMatchRepository
         if (!string.IsNullOrEmpty(sport))
         {
             query = query.Where(m => m.Sport == sport);
+        }
+
+        if (onlyWithOdds)
+        {
+            query = query.Where(m => _context.Odds.Any(o => o.MatchId == m.Id));
         }
 
         return await query.OrderBy(m => m.CommenceTime).ToListAsync(cancellationToken);
@@ -73,12 +83,91 @@ public class MatchRepository : IMatchRepository
             .ToListAsync(cancellationToken);
 
         // Match fuzzy por nome de equipa (case-insensitive, contains em ambas as direções)
+        var matchNormal = candidates.FirstOrDefault(m =>
+            m.HomeTeam != null && m.AwayTeam != null &&
+            NamesFuzzyMatch(m.HomeTeam.Name, homeTeam) &&
+            NamesFuzzyMatch(m.AwayTeam.Name, awayTeam));
+
+        if (matchNormal is not null)
+            return matchNormal;
+
+        // Fallback: odds providers may invert home/away ordering, especially for tennis events
         return candidates.FirstOrDefault(m =>
             m.HomeTeam != null && m.AwayTeam != null &&
-            (m.HomeTeam.Name.Contains(homeTeam, StringComparison.OrdinalIgnoreCase) ||
-             homeTeam.Contains(m.HomeTeam.Name, StringComparison.OrdinalIgnoreCase)) &&
-            (m.AwayTeam.Name.Contains(awayTeam, StringComparison.OrdinalIgnoreCase) ||
-             awayTeam.Contains(m.AwayTeam.Name, StringComparison.OrdinalIgnoreCase)));
+            NamesFuzzyMatch(m.HomeTeam.Name, awayTeam) &&
+            NamesFuzzyMatch(m.AwayTeam.Name, homeTeam));
+    }
+
+    private static bool NamesFuzzyMatch(string a, string b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+            return false;
+
+        if (a.Contains(b, StringComparison.OrdinalIgnoreCase) ||
+            b.Contains(a, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Tennis providers often abbreviate names (e.g. "A. Zakharova" vs "Anastasia Zakharova").
+        // Try a light normalization based on last-name + first-initial (supports doubles via "/").
+        var na = NormalizeTennisParticipantKey(a);
+        var nb = NormalizeTennisParticipantKey(b);
+        return !string.IsNullOrWhiteSpace(na) &&
+               !string.IsNullOrWhiteSpace(nb) &&
+               string.Equals(na, nb, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeTennisParticipantKey(string name)
+    {
+        // Split doubles like "Player1/ Player2" into stable sorted keys.
+        var parts = name
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeSingleTennisName)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (parts.Count == 0)
+            return string.Empty;
+
+        return string.Join("|", parts);
+    }
+
+    private static string NormalizeSingleTennisName(string name)
+    {
+        // Remove punctuation and normalize whitespace.
+        var cleaned = new string(name
+            .Trim()
+            .Where(ch => char.IsLetterOrDigit(ch) || char.IsWhiteSpace(ch))
+            .ToArray());
+
+        var tokens = cleaned
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (tokens.Length == 0)
+            return string.Empty;
+
+        var last = tokens[^1];
+        var first = tokens[0];
+        var initial = first.Length > 0 ? first[0].ToString().ToLowerInvariant() : string.Empty;
+
+        return $"{initial}{last}".ToLowerInvariant();
+    }
+
+    /// <inheritdoc />
+    public async Task<IEnumerable<MatchEntity>> GetFinishedSinceAsync(
+        DateTime since,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.Matches
+            .Include(m => m.HomeTeam)
+            .Include(m => m.AwayTeam)
+            .Where(m => m.Status == "FINISHED"
+                     && m.UpdatedAt >= since
+                     && m.Sport == "football")
+            .OrderByDescending(m => m.UpdatedAt)
+            .ToListAsync(cancellationToken);
     }
 
     /// <inheritdoc />

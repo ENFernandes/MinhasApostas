@@ -3,6 +3,9 @@
 from datetime import datetime, timedelta
 from typing import TypedDict
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 class MatchResult(TypedDict):
     """Type definition for a match result."""
@@ -218,6 +221,178 @@ def calculate_xg(
     # Simplified model: 0.1 per shot, 0.3 per shot on target, 0.4 per big chance
     xg = (shots * 0.05) + (shots_on_target * 0.15) + (big_chances * 0.35)
     return round(xg, 2)
+
+
+async def get_recent_games_for_poisson(
+    db: AsyncSession,
+    team_name: str,
+    is_home: bool,
+    n_jogos: int = 10,
+) -> list[dict]:
+    """Busca jogos recentes de historical_matches para calibrar o modelo Poisson.
+
+    Returns:
+        Lista de dicts com goals_scored, goals_conceded, is_home.
+    """
+    if is_home:
+        query = text("""
+            SELECT home_goals AS goals_scored, away_goals AS goals_conceded, TRUE AS is_home
+            FROM historical_matches
+            WHERE home_team ILIKE :team AND home_goals IS NOT NULL
+            ORDER BY match_date DESC NULLS LAST
+            LIMIT :n
+        """)
+    else:
+        query = text("""
+            SELECT away_goals AS goals_scored, home_goals AS goals_conceded, FALSE AS is_home
+            FROM historical_matches
+            WHERE away_team ILIKE :team AND away_goals IS NOT NULL
+            ORDER BY match_date DESC NULLS LAST
+            LIMIT :n
+        """)
+
+    rows = (await db.execute(query, {"team": f"%{team_name}%", "n": n_jogos})).fetchall()
+    return [
+        {
+            "goals_scored": r.goals_scored,
+            "goals_conceded": r.goals_conceded,
+            "is_home": r.is_home,
+        }
+        for r in rows
+    ]
+
+
+async def calcular_forma_recente(
+    db: AsyncSession,
+    team_name: str,
+    is_home: bool,
+    n_jogos: int = 5,
+) -> dict:
+    """Calcula a forma recente de uma equipa para contexto do LLM.
+
+    Fonte primária: historical_matches (football-data.co.uk)
+    Resultado normalizado para a perspectiva da equipa: V/E/D (Vitória/Empate/Derrota).
+    """
+    if is_home:
+        query = text("""
+            SELECT home_goals AS goals_scored, away_goals AS goals_conceded,
+                   result, match_date, away_team AS opponent
+            FROM historical_matches
+            WHERE home_team ILIKE :team AND home_goals IS NOT NULL
+            ORDER BY match_date DESC NULLS LAST
+            LIMIT :n
+        """)
+    else:
+        query = text("""
+            SELECT away_goals AS goals_scored, home_goals AS goals_conceded,
+                   result, match_date, home_team AS opponent
+            FROM historical_matches
+            WHERE away_team ILIKE :team AND away_goals IS NOT NULL
+            ORDER BY match_date DESC NULLS LAST
+            LIMIT :n
+        """)
+
+    rows = (await db.execute(query, {"team": f"%{team_name}%", "n": n_jogos})).fetchall()
+
+    if not rows:
+        return {
+            "team": team_name,
+            "venue": "home" if is_home else "away",
+            "games": 0,
+            "avg_goals_scored": 0.0,
+            "avg_goals_conceded": 0.0,
+            "form_string": "",
+        }
+
+    form_chars: list[str] = []
+    for r in rows:
+        # result: 'H' = home win, 'D' = draw, 'A' = away win
+        if is_home:
+            char = "V" if r.result == "H" else ("E" if r.result == "D" else "D")
+        else:
+            char = "V" if r.result == "A" else ("E" if r.result == "D" else "D")
+        form_chars.append(char)
+
+    avg_scored = sum(r.goals_scored for r in rows) / len(rows)
+    avg_conceded = sum(r.goals_conceded for r in rows) / len(rows)
+
+    return {
+        "team": team_name,
+        "venue": "home" if is_home else "away",
+        "games": len(rows),
+        "avg_goals_scored": round(avg_scored, 2),
+        "avg_goals_conceded": round(avg_conceded, 2),
+        "form_string": " ".join(form_chars),
+    }
+
+
+async def calcular_h2h(
+    db: AsyncSession,
+    home_team: str,
+    away_team: str,
+    n_jogos: int = 5,
+) -> dict:
+    """Calcula o histórico de confrontos directos entre duas equipas.
+
+    Fonte: historical_matches
+    Resultados normalizados para a perspectiva de home_team vs away_team.
+    """
+    query = text("""
+        SELECT home_team, away_team, home_goals, away_goals, result, match_date
+        FROM historical_matches
+        WHERE (home_team ILIKE :home AND away_team ILIKE :away)
+           OR (home_team ILIKE :away AND away_team ILIKE :home)
+        ORDER BY match_date DESC NULLS LAST
+        LIMIT :n
+    """)
+
+    rows = (await db.execute(query, {
+        "home": f"%{home_team}%",
+        "away": f"%{away_team}%",
+        "n": n_jogos,
+    })).fetchall()
+
+    if not rows:
+        return {
+            "home_team": home_team,
+            "away_team": away_team,
+            "games": 0,
+            "home_wins": 0,
+            "draws": 0,
+            "away_wins": 0,
+            "avg_total_goals": 0.0,
+        }
+
+    home_wins = 0
+    draws = 0
+    away_wins = 0
+    total_goals = 0
+
+    for r in rows:
+        total_goals += (r.home_goals or 0) + (r.away_goals or 0)
+        home_is_requested_home = home_team.lower() in r.home_team.lower()
+        if r.result == "D":
+            draws += 1
+        elif r.result == "H":
+            if home_is_requested_home:
+                home_wins += 1
+            else:
+                away_wins += 1
+        else:  # 'A'
+            if home_is_requested_home:
+                away_wins += 1
+            else:
+                home_wins += 1
+
+    return {
+        "home_team": home_team,
+        "away_team": away_team,
+        "games": len(rows),
+        "home_wins": home_wins,
+        "draws": draws,
+        "away_wins": away_wins,
+        "avg_total_goals": round(total_goals / len(rows), 2),
+    }
 
 
 def calculate_average_xg(

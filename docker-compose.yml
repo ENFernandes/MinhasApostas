@@ -82,11 +82,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Postgres: "Host=${POSTGRES_HOST:-postgres};Port=5432;Database=${POSTGRES_DB:-sportsbetting};Username=${POSTGRES_USER:-sba_user};Password=${POSTGRES_PASSWORD}"
-      RabbitMQ__Host: ${RABBITMQ_HOST:-rabbitmq}
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-sportsbetting};Username=${POSTGRES_USER:-sba_user};Password=${POSTGRES_PASSWORD}"
+      RabbitMQ__Host: rabbitmq
       RabbitMQ__User: ${RABBITMQ_USER:-sba_rabbit}
       RabbitMQ__Password: ${RABBITMQ_PASSWORD}
-      Redis__Url: "redis://${REDIS_HOST:-redis}:6379"
+      Redis__Url: "redis://redis:6379"
       ApiKeys__FootballData: ${FOOTBALL_DATA_API_KEY}
       ApiKeys__Tennis: ${TENNIS_API_KEY}
       ApiKeys__Odds: ${ODDS_API_KEY}
@@ -126,19 +126,19 @@ services:
       LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
       # Infrastructure
-      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-sportsbetting}
       POSTGRES_USER: ${POSTGRES_USER:-sba_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_USER:-sba_rabbit}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-sba_rabbit}:${RABBITMQ_PASSWORD}@${RABBITMQ_HOST:-rabbitmq}:5672/"
-      REDIS_URL: "redis://${REDIS_HOST:-redis}:6379"
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-sba_rabbit}:${RABBITMQ_PASSWORD}@rabbitmq:5672/"
+      REDIS_URL: "redis://redis:6379"
       # App
       PORT: 8090
       # C# API
@@ -156,7 +156,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8090/health || exit 1"]
+      # Use Python (curl is not installed in the slim image) to check the /health endpoint.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8090/health');\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

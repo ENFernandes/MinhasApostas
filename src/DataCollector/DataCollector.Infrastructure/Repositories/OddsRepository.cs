@@ -47,4 +47,21 @@ public class OddsRepository : IOddsRepository
         await _context.Odds.AddRangeAsync(odds, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task ReplaceForMatchesAsync(IEnumerable<Guid> matchIds, IEnumerable<OddsEntity> odds, CancellationToken cancellationToken = default)
+    {
+        var ids = matchIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return;
+
+        // The schema enforces a unique constraint on (match_id, bookmaker, market, outcome).
+        // To refresh odds without failing on duplicates, we replace odds for the affected matches.
+        await _context.Odds
+            .Where(o => ids.Contains(o.MatchId))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _context.Odds.AddRangeAsync(odds, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
 }

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SportsBetting.DataCollector.Core.Entities;
+using SportsBetting.DataCollector.Infrastructure.Jobs;
 
 namespace SportsBetting.DataCollector.Infrastructure.Data;
 
@@ -20,6 +21,7 @@ public class SportsBettingDbContext : DbContext
     public DbSet<OddsEntity> Odds => Set<OddsEntity>();
     public DbSet<RecommendationEntity> Recommendations => Set<RecommendationEntity>();
     public DbSet<BetEntity> Bets => Set<BetEntity>();
+    public DbSet<MatchLineupEntity> MatchLineups => Set<MatchLineupEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -138,6 +140,18 @@ public class SportsBettingDbContext : DbContext
                 .WithOne(r => r.Bet)
                 .HasForeignKey<BetEntity>(e => e.RecommendationId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // MatchLineup configuration (V011 migration)
+        modelBuilder.Entity<MatchLineupEntity>(entity =>
+        {
+            entity.ToTable("match_lineups");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.MatchId);
+            entity.HasIndex(e => new { e.MatchId, e.TeamId }).IsUnique();
+            entity.Property(e => e.Formation).HasMaxLength(10);
+            entity.Property(e => e.Players).HasColumnType("jsonb").IsRequired();
+            entity.Property(e => e.Substitutes).HasColumnType("jsonb").IsRequired();
         });
     }
 }

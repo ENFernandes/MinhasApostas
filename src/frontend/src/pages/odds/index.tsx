@@ -18,7 +18,8 @@ import { formatCurrency, formatTime, formatDateShort } from '@/lib/utils'
 
 export default function OddsAnalyzerPage() {
   const { settings } = useAppStore()
-  const { data: matches, isLoading: matchesLoading } = useMatches()
+  // Only show matches that already have odds in the DB.
+  const { data: matches, isLoading: matchesLoading } = useMatches(undefined, undefined, undefined, true)
   const { data: recommendations, isLoading: recsLoading } = useRecommendations()
   const [selectedMatch, setSelectedMatch] = useState<string | null>(null)
   const [sportFilter, setSportFilter] = useState<'all' | 'football' | 'tennis'>('all')
@@ -62,6 +63,17 @@ export default function OddsAnalyzerPage() {
     
     const grouped = matchOddsData.reduce((acc: any, odd: any) => {
       const market = odd.market || 'Outros'
+      const oddValue = typeof odd.oddDecimal === 'number'
+        ? odd.oddDecimal
+        : typeof odd.odd === 'number'
+          ? odd.odd
+          : null
+
+      // Guard against malformed/empty odds payloads to avoid runtime crashes.
+      if (oddValue === null || !Number.isFinite(oddValue)) {
+        return acc
+      }
+
       if (!acc[market]) {
         acc[market] = []
       }
@@ -70,8 +82,10 @@ export default function OddsAnalyzerPage() {
         bookmaker: odd.bookmaker,
         market: odd.market,
         outcome: odd.outcome,
-        odd: odd.oddDecimal || odd.odd,
-        impliedProbability: odd.impliedProbability || (1 / (odd.oddDecimal || odd.odd)),
+        odd: oddValue,
+        impliedProbability: typeof odd.impliedProbability === 'number'
+          ? odd.impliedProbability
+          : 1 / oddValue,
       })
       return acc
     }, {})
@@ -213,47 +227,66 @@ export default function OddsAnalyzerPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="p-3 rounded-lg bg-navy-800/50">
-                          <p className="text-xs text-slate-400">Mercado</p>
-                          <p className="font-semibold text-slate-200">{selectedMatchRec.market}</p>
-                        </div>
-                        <div className="p-3 rounded-lg bg-navy-800/50">
-                          <p className="text-xs text-slate-400">Outcome</p>
-                          <p className="font-semibold text-slate-200">{selectedMatchRec.outcome}</p>
-                        </div>
-                        <div className="p-3 rounded-lg bg-navy-800/50">
-                          <p className="text-xs text-slate-400">Odd</p>
-                          <p className="font-semibold text-gold-400">{selectedMatchRec.odd_decimal.toFixed(2)}</p>
-                        </div>
-                        <div className="p-3 rounded-lg bg-navy-800/50">
-                          <p className="text-xs text-slate-400">Stake Recomendada</p>
-                          <p className="font-semibold text-emerald-400">
-                            {formatCurrency(selectedMatchRec.stake_euros)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-4 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <ValueBadge
-                            isValid={selectedMatchRec.value > 0}
-                            value={selectedMatchRec.value}
-                            confidence={selectedMatchRec.confidence}
-                            kellyFraction={selectedMatchRec.kelly_fraction}
-                            size="md"
-                          />
-                          <Badge variant="outline" className="border-navy-700 text-slate-400">
-                            <Target className="w-3 h-3 mr-1" />
-                            Confiança: {selectedMatchRec.confidence}/10
-                          </Badge>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-xs text-slate-400">Value Esperado</p>
-                          <p className="text-sm font-medium text-emerald-400">
-                            +{(selectedMatchRec.value * 100).toFixed(1)}%
-                          </p>
-                        </div>
-                      </div>
+                      {(() => {
+                        const recOdd: number =
+                          typeof selectedMatchRec.odd_decimal === 'number'
+                            ? selectedMatchRec.odd_decimal
+                            : typeof selectedMatchRec.odd === 'number'
+                              ? selectedMatchRec.odd
+                              : 0
+                        const recStake: number =
+                          typeof selectedMatchRec.stake_euros === 'number'
+                            ? selectedMatchRec.stake_euros
+                            : typeof selectedMatchRec.stakeEuros === 'number'
+                              ? selectedMatchRec.stakeEuros
+                              : 0
+
+                        return (
+                          <>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <div className="p-3 rounded-lg bg-navy-800/50">
+                                <p className="text-xs text-slate-400">Mercado</p>
+                                <p className="font-semibold text-slate-200">{selectedMatchRec.market}</p>
+                              </div>
+                              <div className="p-3 rounded-lg bg-navy-800/50">
+                                <p className="text-xs text-slate-400">Outcome</p>
+                                <p className="font-semibold text-slate-200">{selectedMatchRec.outcome}</p>
+                              </div>
+                              <div className="p-3 rounded-lg bg-navy-800/50">
+                                <p className="text-xs text-slate-400">Odd</p>
+                                <p className="font-semibold text-gold-400">{recOdd.toFixed(2)}</p>
+                              </div>
+                              <div className="p-3 rounded-lg bg-navy-800/50">
+                                <p className="text-xs text-slate-400">Stake Recomendada</p>
+                                <p className="font-semibold text-emerald-400">
+                                  {formatCurrency(recStake)}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="mt-4 flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <ValueBadge
+                                  isValid={selectedMatchRec.value > 0}
+                                  value={selectedMatchRec.value}
+                                  confidence={selectedMatchRec.confidence}
+                                  kellyFraction={selectedMatchRec.kelly_fraction}
+                                  size="md"
+                                />
+                                <Badge variant="outline" className="border-navy-700 text-slate-400">
+                                  <Target className="w-3 h-3 mr-1" />
+                                  Confiança: {selectedMatchRec.confidence}/10
+                                </Badge>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-slate-400">Value Esperado</p>
+                                <p className="text-sm font-medium text-emerald-400">
+                                  +{(selectedMatchRec.value * 100).toFixed(1)}%
+                                </p>
+                              </div>
+                            </div>
+                          </>
+                        )
+                      })()}
                     </CardContent>
                   </Card>
                 )}
@@ -311,7 +344,7 @@ export default function OddsAnalyzerPage() {
                         key={market}
                         market={market}
                         odds={odds as any}
-                        modelProbability={selectedMatchRec?.model_probabilities?.home_win}
+                        modelProbability={selectedMatchRec?.model_probabilities?.home || selectedMatchRec?.model_probabilities?.home_win}
                         confidence={selectedMatchRec?.confidence || 6}
                         showAnalysis={true}
                       />

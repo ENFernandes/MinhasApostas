@@ -1,5 +1,6 @@
 """Ollama local LLM provider implementation."""
 
+import asyncio
 import os
 import time
 
@@ -83,7 +84,7 @@ class OllamaProvider:
 
             except Exception:
                 if attempt < MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 raise
 

@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Hangfire;
 using Hangfire.Dashboard;
 using Hangfire.PostgreSql;
@@ -6,11 +8,11 @@ using Microsoft.OpenApi.Models;
 using Refit;
 using SportsBetting.DataCollector.Api.Extensions;
 using SportsBetting.DataCollector.Api.Middleware;
+using SportsBetting.DataCollector.Api.Services;
 using SportsBetting.DataCollector.Core.Interfaces;
 using SportsBetting.DataCollector.Infrastructure.Services;
 using SportsBetting.DataCollector.Infrastructure.Clients;
 using SportsBetting.DataCollector.Infrastructure.Data;
-using SportsBetting.DataCollector.Infrastructure.Services;
 
 namespace SportsBetting.DataCollector.Api;
 
@@ -24,10 +26,9 @@ public class Program
         builder.Services.AddControllers()
             .AddJsonOptions(options =>
             {
-                // Garantir que DateTime UTC é serializado com 'Z' (ex: "2025-03-27T20:00:00Z")
-                // para o browser JS interpretar corretamente como UTC em vez de hora local
-                options.JsonSerializerOptions.Converters.Add(
-                    new System.Text.Json.Serialization.JsonStringEnumConverter());
+                options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+                options.JsonSerializerOptions.Converters.Add(new UtcDateTimeConverter());
             });
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(c =>
@@ -60,7 +61,7 @@ public class Program
         // Database
         var connectionString = builder.Configuration.GetConnectionString("Postgres")
             ?? builder.Configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException("Connection string 'Postgres' or 'DefaultConnection' not found.");
+            ?? throw new InvalidOperationException("Connection string Postgres or DefaultConnection not found.");
 
         builder.Services.AddDbContext<SportsBettingDbContext>(options =>
             options.UseNpgsql(connectionString)
@@ -93,6 +94,14 @@ public class Program
                 client.BaseAddress = new Uri("https://api.api-tennis.com/tennis");
             });
 
+        builder.Services.AddRefitClient<IApiFootballClient>()
+            .ConfigureHttpClient(client =>
+            {
+                client.BaseAddress = new Uri("https://v3.football.api-sports.io");
+                client.DefaultRequestHeaders.Add("x-apisports-key",
+                    builder.Configuration["ApiKeys:ApiFootball"] ?? string.Empty);
+            });
+
         builder.Services.AddTransient<OddsApiKeyHandler>();
         builder.Services.AddRefitClient<IOddsApiClient>()
             .ConfigureHttpClient(client =>
@@ -111,6 +120,9 @@ public class Program
         builder.Services.AddServicesByReflection(
             typeof(Program).Assembly,
             typeof(SportsBettingDbContext).Assembly);
+
+        // JobDispatcher — used by Hangfire to resolve and execute IJobService implementations via DI
+        builder.Services.AddTransient<JobDispatcher>();
 
         var app = builder.Build();
 
@@ -153,16 +165,18 @@ public class Program
         {
             try
             {
-                // Create instance to get JobId and CronExpression
                 var jobInstance = (IJobService?)ActivatorUtilities.CreateInstance(scope.ServiceProvider, jobType);
                 if (jobInstance == null) continue;
 
-                RecurringJob.AddOrUpdate(
+                // Capture type name for the Hangfire closure — AssemblyQualifiedName
+                // allows JobDispatcher to resolve the concrete type at runtime via DI
+                var capturedTypeName = jobType.AssemblyQualifiedName!;
+                RecurringJob.AddOrUpdate<JobDispatcher>(
                     jobInstance.JobId,
-                    () => ExecuteJob(jobInstance.JobId),
+                    dispatcher => dispatcher.ExecuteAsync(capturedTypeName),
                     jobInstance.CronExpression);
 
-                Console.WriteLine($"Scheduled job: {jobInstance.JobId} with cron: {jobInstance.CronExpression}");
+                Console.WriteLine($"Scheduled job: {jobInstance.JobId} ({jobType.Name}) with cron: {jobInstance.CronExpression}");
             }
             catch (Exception ex)
             {
@@ -170,13 +184,33 @@ public class Program
             }
         }
     }
+}
 
-    [AutomaticRetry(Attempts = 3)]
-    public static void ExecuteJob(string jobId)
+/// <summary>
+/// Custom JSON converter that serializes DateTime as UTC with Z suffix.
+/// </summary>
+public class UtcDateTimeConverter : JsonConverter<DateTime>
+{
+    public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
-        // This method is called by Hangfire
-        // The actual implementation resolves and executes the job via DI
-        Console.WriteLine($"Executing job: {jobId}");
+        var value = reader.GetString();
+        if (string.IsNullOrEmpty(value))
+            return DateTime.MinValue;
+
+        // Try parsing with Z suffix first, then without
+        if (DateTime.TryParse(value, out var result))
+        {
+            return DateTime.SpecifyKind(result, DateTimeKind.Utc);
+        }
+        
+        return DateTime.MinValue;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
+    {
+        // Always write as UTC with Z suffix
+        var utcValue = value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+        writer.WriteStringValue(utcValue.ToString("yyyy-MM-ddTHH:mm:ssZ"));
     }
 }
 
@@ -197,20 +231,7 @@ public class OddsApiKeyHandler : DelegatingHandler
     {
         var uri = request.RequestUri!;
         var separator = string.IsNullOrEmpty(uri.Query) ? "?" : "&";
-        request.RequestUri = new Uri(uri + separator + "apiKey=" + _apiKey);
+        request.RequestUri = new Uri($"{uri}{separator}apiKey={_apiKey}");
         return await base.SendAsync(request, cancellationToken);
-    }
-}
-
-/// <summary>
-/// Simple authorization filter for Hangfire dashboard.
-/// </summary>
-public class HangfireDashboardAuthorizationFilter : IDashboardAuthorizationFilter
-{
-    public bool Authorize(DashboardContext context)
-    {
-        // Allow access in development
-        var httpContext = context.GetHttpContext();
-        return httpContext.Request.Host.Host == "localhost";
     }
 }

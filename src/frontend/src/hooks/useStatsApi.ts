@@ -126,32 +126,32 @@ async function fetchHeadToHead(homeTeam: string, awayTeam: string, sport: string
   return mapHeadToHeadDto(data)
 }
 
-export const useTeamForm = (teamName: string, _leagueId?: number) => {
+export const useTeamForm = (teamName: string, sport: string = 'football') => {
   return useQuery({
-    queryKey: ['teamForm', teamName],
+    queryKey: ['teamForm', teamName, sport],
     queryFn: async (): Promise<TeamForm> => {
-      return fetchTeamForm(teamName)
+      return fetchTeamForm(teamName, sport)
     },
     enabled: !!teamName,
     staleTime: 5 * 60 * 1000,
   })
 }
 
-export const useHeadToHead = (homeTeam: string, awayTeam: string) => {
+export const useHeadToHead = (homeTeam: string, awayTeam: string, sport: string = 'football') => {
   return useQuery({
-    queryKey: ['headToHead', homeTeam, awayTeam],
+    queryKey: ['headToHead', homeTeam, awayTeam, sport],
     queryFn: async (): Promise<HeadToHeadStats> => {
-      return fetchHeadToHead(homeTeam, awayTeam)
+      return fetchHeadToHead(homeTeam, awayTeam, sport)
     },
     enabled: !!homeTeam && !!awayTeam,
     staleTime: 5 * 60 * 1000,
   })
 }
 
-export const useMatchStats = (homeTeam: string, awayTeam: string, _leagueId?: number) => {
-  const homeFormQuery = useTeamForm(homeTeam)
-  const awayFormQuery = useTeamForm(awayTeam)
-  const h2hQuery = useHeadToHead(homeTeam, awayTeam)
+export const useMatchStats = (homeTeam: string, awayTeam: string, sport: string = 'football') => {
+  const homeFormQuery = useTeamForm(homeTeam, sport)
+  const awayFormQuery = useTeamForm(awayTeam, sport)
+  const h2hQuery = useHeadToHead(homeTeam, awayTeam, sport)
 
   return {
     homeForm: homeFormQuery,

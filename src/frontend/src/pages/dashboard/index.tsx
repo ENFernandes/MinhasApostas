@@ -14,6 +14,12 @@ import { useAppStore } from '@/stores/appStore'
 import { formatCurrency } from '@/lib/utils'
 
 export default function DashboardPage() {
+  // Limit dashboard to matches that are played today (local time)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayEnd = new Date()
+  todayEnd.setHours(23, 59, 59, 999)
+
   const {
     selectedSport,
     settings,
@@ -26,7 +32,12 @@ export default function DashboardPage() {
     minValueFilter,
     minConfidenceFilter,
   } = useAppStore()
-  const { data: matches, isLoading: matchesLoading } = useMatches()
+  const { data: matches, isLoading: matchesLoading } = useMatches(
+    todayStart,
+    todayEnd,
+    selectedSport !== 'all' ? selectedSport : undefined,
+    true
+  )
   const { data: recommendations, isLoading: recsLoading } = useRecommendations()
   const { data: selectedAnalysis, isLoading: isAnalysisLoading, isError: isAnalysisError } = useLatestAnalysis(selectedAnalysisMatchId || '')
   const { mutate: runAnalysis, isPending: isRunningAnalysis, isError: isAnalysisRunError } = useAnalyzeMatch()
@@ -36,8 +47,38 @@ export default function DashboardPage() {
   // Create a map of recommendations by match_id for easy lookup
   const recommendationsMap = useMemo(() => {
     if (!recommendations) return {}
+    // `/analysis/recommendations` returns a recommendation payload (not a full Analysis object).
+    // Normalize it to the `Analysis` shape expected by `MatchCard` and `StakeModal`.
     return recommendations.reduce((acc: Record<string, any>, rec: any) => {
-      acc[rec.match_id] = rec
+      const recommendedMarket = {
+        market: rec.market ?? 'N/A',
+        outcome: rec.outcome ?? 'N/A',
+        bookmaker: rec.bookmaker ?? 'N/A',
+        odd: typeof rec.odd === 'number' ? rec.odd : typeof rec.odd_decimal === 'number' ? rec.odd_decimal : 0,
+        impliedProbability: typeof rec.impliedProbability === 'number' ? rec.impliedProbability : (typeof rec.implied_probability === 'number' ? rec.implied_probability : 0),
+        modelProbability: typeof rec.modelProbability === 'number' ? rec.modelProbability : (typeof rec.model_probability === 'number' ? rec.model_probability : 0),
+        value: typeof rec.value === 'number' ? rec.value : 0,
+        kellyFraction: typeof rec.kellyFraction === 'number' ? rec.kellyFraction : (typeof rec.kelly_fraction === 'number' ? rec.kelly_fraction : 0),
+        stakeEuros: typeof rec.stakeEuros === 'number' ? rec.stakeEuros : (typeof rec.stake_euros === 'number' ? rec.stake_euros : 0),
+        confidence: typeof rec.confidence === 'number' ? rec.confidence : 0,
+      }
+
+      acc[rec.match_id] = {
+        matchId: rec.match_id,
+        sport: rec.sport ?? 'unknown',
+        homeTeam: rec.home_team ?? '',
+        awayTeam: rec.away_team ?? '',
+        commenceTime: rec.commence_time ?? '',
+        isLive: false,
+        modelProbabilities: rec.modelProbabilities ?? rec.model_probabilities ?? {},
+        recommendedMarket,
+        alternativeMarkets: [],
+        reasoning: rec.reasoning ?? '',
+        contextFlags: rec.contextFlags ?? rec.context_flags ?? {},
+        generatedAt: rec.generatedAt ?? rec.generated_at ?? new Date().toISOString(),
+        llmProvider: rec.llmProvider ?? rec.llm_provider ?? '',
+        llmModel: rec.llmModel ?? rec.llm_model ?? '',
+      }
       return acc
     }, {} as Record<string, any>)
   }, [recommendations])
@@ -54,25 +95,36 @@ export default function DashboardPage() {
 
       // Get recommendation for this match
       const rec = recommendationsMap[match.id]
-      if (!rec) return true // Keep matches without recommendations
+      if (!rec || !rec.recommendedMarket) {
+        return false
+      }
+
+      const market = rec.recommendedMarket
+
+      const recOdd: number | null =
+        typeof market.odd === 'number'
+          ? market.odd
+          : typeof market.odd_decimal === 'number'
+            ? market.odd_decimal
+            : null
 
       // Filter by min odd
-      if (minOddFilter !== null && rec.odd_decimal < minOddFilter) {
+      if (minOddFilter !== null && recOdd !== null && recOdd < minOddFilter) {
         return false
       }
 
       // Filter by max odd
-      if (maxOddFilter !== null && rec.odd_decimal > maxOddFilter) {
+      if (maxOddFilter !== null && recOdd !== null && recOdd > maxOddFilter) {
         return false
       }
 
       // Filter by min value
-      if (minValueFilter !== null && rec.value < minValueFilter) {
+      if (minValueFilter !== null && market.value < minValueFilter) {
         return false
       }
 
       // Filter by min confidence
-      if (minConfidenceFilter !== null && rec.confidence < minConfidenceFilter) {
+      if (minConfidenceFilter !== null && market.confidence < minConfidenceFilter) {
         return false
       }
 
@@ -81,7 +133,11 @@ export default function DashboardPage() {
   }, [matches, selectedSport, recommendationsMap, minOddFilter, maxOddFilter, minValueFilter, minConfidenceFilter])
 
   const stats = {
-    todayBets: recommendations?.length || 0,
+    // Count recommendations that are visible in the current match list.
+    todayBets: filteredMatches.filter((m) => {
+      const rec = recommendationsMap[m.id]
+      return !!rec?.recommendedMarket
+    }).length,
     totalProfit: 0, // Would calculate from bet history
     winRate: 0,
     roi: 0,
@@ -196,7 +252,7 @@ export default function DashboardPage() {
         isOpen={isAnalysisModalOpen}
         onClose={closeAnalysisModal}
         isLoading={isRunningAnalysis || (isAnalysisLoading && !isAnalysisError)}
-        isError={isAnalysisRunError || isAnalysisError}
+        isError={isAnalysisRunError || (isAnalysisError && !isRunningAnalysis)}
       />
     </div>
   )

@@ -21,7 +21,8 @@ public class BetRepository : IBetRepository, IScopedService
     public async Task<IEnumerable<BetEntity>> GetSettledBetsAsync(CancellationToken cancellationToken = default)
     {
         return await _context.Bets
-            .Include(b => b.Match)
+            .Include(b => b.Match).ThenInclude(m => m!.HomeTeam)
+            .Include(b => b.Match).ThenInclude(m => m!.AwayTeam)
             .Include(b => b.Recommendation)
             .Where(b => b.Result == "WIN" || b.Result == "LOSS" || b.Result == "VOID")
             .OrderByDescending(b => b.SettledAt)
@@ -29,10 +30,23 @@ public class BetRepository : IBetRepository, IScopedService
     }
 
     /// <inheritdoc />
+    public async Task<IEnumerable<BetEntity>> GetPendingBetsAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.Bets
+            .Include(b => b.Match).ThenInclude(m => m!.HomeTeam)
+            .Include(b => b.Match).ThenInclude(m => m!.AwayTeam)
+            .Include(b => b.Recommendation)
+            .Where(b => b.Result == "PENDING")
+            .OrderByDescending(b => b.PlacedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<BetEntity?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Bets
-            .Include(b => b.Match)
+            .Include(b => b.Match).ThenInclude(m => m!.HomeTeam)
+            .Include(b => b.Match).ThenInclude(m => m!.AwayTeam)
             .Include(b => b.Recommendation)
             .FirstOrDefaultAsync(b => b.Id == id, cancellationToken);
     }
@@ -41,7 +55,8 @@ public class BetRepository : IBetRepository, IScopedService
     public async Task<BetEntity?> GetByRecommendationIdAsync(Guid recommendationId, CancellationToken cancellationToken = default)
     {
         return await _context.Bets
-            .Include(b => b.Match)
+            .Include(b => b.Match).ThenInclude(m => m!.HomeTeam)
+            .Include(b => b.Match).ThenInclude(m => m!.AwayTeam)
             .Include(b => b.Recommendation)
             .FirstOrDefaultAsync(b => b.RecommendationId == recommendationId, cancellationToken);
     }

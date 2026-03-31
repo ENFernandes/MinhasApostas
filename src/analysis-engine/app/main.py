@@ -56,17 +56,23 @@ async def lifespan(app: FastAPI):
         "amqp://guest:guest@localhost:5672/"
     )
 
-    # Start consumers
-    app.state.match_consumer = MatchConsumer(rabbitmq_url)
-    app.state.match_consumer.register_handler("football.match.new", handle_football_match)
-    app.state.match_consumer.register_handler("tennis.match.new", handle_tennis_match)
-    await app.state.match_consumer.connect()
+    # Start consumers — falha não impede o arranque da API
+    try:
+        app.state.match_consumer = MatchConsumer(rabbitmq_url)
+        app.state.match_consumer.register_handler("football.match.new", handle_football_match)
+        app.state.match_consumer.register_handler("tennis.match.new", handle_tennis_match)
+        await app.state.match_consumer.connect()
 
-    app.state.odds_consumer = OddsConsumer(rabbitmq_url)
-    app.state.odds_consumer.register_handler(handle_odds_update)
-    await app.state.odds_consumer.connect()
+        app.state.odds_consumer = OddsConsumer(rabbitmq_url)
+        app.state.odds_consumer.register_handler(handle_odds_update)
+        await app.state.odds_consumer.connect()
 
-    logger.info("All consumers started")
+        logger.info("All consumers started")
+    except Exception as e:
+        logger.warning(
+            "RabbitMQ consumers not started — API continua operacional sem queue",
+            error=str(e),
+        )
 
     yield
 

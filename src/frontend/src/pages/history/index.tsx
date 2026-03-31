@@ -24,9 +24,9 @@ import type { BetResult } from '@/types'
 function calculateChartData(bets: BetResult[] | undefined) {
   if (!bets || bets.length === 0) return []
   
-  const sortedBets = [...bets].sort((a, b) => 
-    new Date(a.settledAt).getTime() - new Date(b.settledAt).getTime()
-  )
+  const sortedBets = [...bets]
+    .filter((b) => !!b?.settledAt)
+    .sort((a, b) => new Date(a.settledAt).getTime() - new Date(b.settledAt).getTime())
   
   let cumulativeValue = 100
   const chartData = sortedBets.map((bet) => {
@@ -290,19 +290,21 @@ export default function HistoryPage() {
                               className="border-b border-navy-800 hover:bg-navy-800/30 transition-colors"
                             >
                               <td className="py-4 px-4 text-sm">
-                                {new Date(bet.settledAt).toLocaleDateString('pt-PT')}
+                                {bet.settledAt ? new Date(bet.settledAt).toLocaleDateString('pt-PT') : '—'}
                               </td>
                               <td className="py-4 px-4 font-medium">
                                 {bet.match?.homeTeam} vs {bet.match?.awayTeam}
                               </td>
                               <td className="py-4 px-4 text-center">
-                                <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
-                                  bet.outcome === 'WIN'
-                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                    : bet.outcome === 'VOID'
-                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                    : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                }`}>
+                                <span
+                                  className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
+                                    bet.outcome === 'WIN'
+                                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                      : bet.outcome === 'VOID'
+                                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                        : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                  }`}
+                                >
                                   {bet.outcome === 'WIN' ? 'Vitória' : bet.outcome === 'VOID' ? 'Anulada' : 'Derrota'}
                                 </span>
                               </td>

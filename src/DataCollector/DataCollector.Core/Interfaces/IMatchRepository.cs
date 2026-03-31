@@ -9,8 +9,14 @@ namespace SportsBetting.DataCollector.Core.Interfaces;
 public interface IMatchRepository : IRepository<MatchEntity>
 {
     Task<MatchEntity?> GetByExternalIdAsync(string externalId, string sport, CancellationToken cancellationToken = default);
-    Task<IEnumerable<MatchEntity>> GetUpcomingAsync(DateTime from, DateTime to, string? sport = null, CancellationToken cancellationToken = default);
+    Task<IEnumerable<MatchEntity>> GetUpcomingAsync(
+        DateTime from,
+        DateTime to,
+        string? sport = null,
+        bool onlyWithOdds = false,
+        CancellationToken cancellationToken = default);
     Task<IEnumerable<MatchEntity>> GetLiveAsync(CancellationToken cancellationToken = default);
     Task UpsertAsync(MatchEntity match, CancellationToken cancellationToken = default);
     Task<MatchEntity?> FindByTeamNamesAndDateAsync(string homeTeam, string awayTeam, DateTime commenceTime, CancellationToken cancellationToken = default);
+    Task<IEnumerable<MatchEntity>> GetFinishedSinceAsync(DateTime since, CancellationToken cancellationToken = default);
 }

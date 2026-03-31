@@ -157,6 +157,17 @@ lambda_fora = media_golos_marcados_fora × (media_golos_sofridos_casa / media_li
 Usar últimos 10 jogos como janela deslizante. Peso maior para jogos mais recentes
 (factor de decaimento 0.9 por jogo para trás).
 
+**Fonte dos dados para lambda:**
+- Jogos recentes (esta época): tabela `matches` — alimentada pelo football-data.org collector
+- Médias históricas de calibração: tabela `historical_matches` — alimentada pelos CSVs football-data.co.uk
+- Se equipa tem < 5 jogos na época actual: usar médias da tabela `historical_matches` (últimas 2 épocas)
+- Média da liga (denominador): calculada sobre `historical_matches` da mesma liga e época
+
+**Enriquecimento com xG (se disponível):**
+- Se a tabela `match_stats` tem `xg` preenchido (via api-football): usar xG em vez de golos reais
+- xG é mais estável que golos — reduz variância causada por jogos atípicos
+- Formula alternativa: `lambda_xg_casa = media_xg_marcados_casa × (media_xg_sofridos_fora / media_xg_liga)`
+
 ### 3. ELO Rating para ténis
 
 ```python
@@ -255,12 +266,13 @@ def deve_apostar(
 | Handicap asiático | `spreads` | diferença de qualidade grande entre equipas |
 
 **Contexto que o modelo Poisson não vê — enviar sempre ao LLM:**
-- Jogadores ausentes (lesões, suspensões)
+- Jogadores ausentes (lesões, suspensões) — via api-football `/fixtures/injuries`
 - Importância do jogo (decisivo para título/descida/europeus)
 - Cansaço (jogos em 3 dias)
 - Factor casa (ambiente, deslocação longa)
-- Histórico H2H nos últimos 3 anos
-- Forma recente (últimos 5 jogos)
+- Histórico H2H nos últimos 3 anos — via `historical_matches`
+- Forma recente (últimos 5 jogos) — via `team_form`
+- xG dos últimos 5 jogos (qualidade real das ocasiões vs golos marcados) — via api-football
 - Jogos in-play: minuto, golos, expulsões, momentum (xG parcial)
 
 ### Ténis — mercados suportados
@@ -408,6 +420,26 @@ Responde APENAS em JSON válido com a estrutura definida no CONTEXT.md.
 Campo "reasoning" em português, máximo 3 frases, explicando o raciocínio.
 Campo "confidence" de 1 a 10.
 ```
+
+---
+
+## Fontes de dados por tipo de cálculo
+
+Esta tabela é o guia de decisão do Python Engine — que fonte usar para cada input do modelo.
+
+| Input necessário | Fonte primária | Fonte secundária |
+|-----------------|----------------|-----------------|
+| Lambda golos — últimos 10 jogos | `historical_matches` (football-data.co.uk) | `matches` (football-data.org) |
+| xG por remate | Modelo treinado com StatsBomb Open Data | xG total via api-football |
+| Estatísticas do jogo (remates, posse) | `api-football` `/fixtures/statistics` | — |
+| Lineups confirmadas | `api-football` `/fixtures/lineups` | — |
+| ELO de tenista | `player_elo_history` (Sackmann CSVs) | Calculado em runtime |
+| Odds actuais | `the-odds-api.com` | TheRundown (fallback) |
+| H2H histórico futebol | `historical_matches` | `football-data.org` |
+| H2H histórico ténis | `player_elo_history` (Sackmann) | `api-tennis.com` |
+
+**Regra crítica:** o modelo Poisson só é confiável com ≥ 5 jogos por equipa na janela.
+Se a equipa tem < 5 jogos na BD, usar médias da liga como fallback antes de rejeitar o cálculo.
 
 ---
 

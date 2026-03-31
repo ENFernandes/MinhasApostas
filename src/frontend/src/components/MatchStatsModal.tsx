@@ -16,7 +16,8 @@ interface MatchStatsModalProps {
 export function MatchStatsModal({ match, isOpen, onClose }: MatchStatsModalProps) {
   const { homeForm, awayForm, headToHead, isLoading, isError } = useMatchStats(
     match?.homeTeam || '',
-    match?.awayTeam || ''
+    match?.awayTeam || '',
+    match?.sport || 'football'
   )
 
   if (!match) return null
@@ -94,7 +95,9 @@ export function MatchStatsModal({ match, isOpen, onClose }: MatchStatsModalProps
                         <BarChart3 className="w-12 h-12 mx-auto text-navy-600 mb-3" />
                         <p className="text-slate-400 font-medium">Dados estatísticos não disponíveis</p>
                         <p className="text-sm text-slate-500 mt-1">
-                          A API gratuita não fornece dados para esta competição
+                          {match.sport === 'tennis'
+                            ? 'Ainda não temos histórico local suficiente para ténis.'
+                            : 'A API gratuita não fornece dados para esta competição.'}
                         </p>
                       </div>
                     </div>

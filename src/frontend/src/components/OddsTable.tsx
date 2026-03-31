@@ -101,7 +101,7 @@ export function OddsTable({
                 <TableCell className="text-slate-300">{odd.bookmaker}</TableCell>
                 <TableCell className="font-medium text-slate-200">{odd.outcome}</TableCell>
                 <TableCell className="text-right font-mono text-slate-200">
-                  {odd.odd.toFixed(2)}
+                  {Number.isFinite(odd.odd) ? odd.odd.toFixed(2) : '-'}
                 </TableCell>
                 {showAnalysis && (
                   <>

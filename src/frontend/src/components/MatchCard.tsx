@@ -38,12 +38,13 @@ export function MatchCard({ match, analysis, onViewDetails }: MatchCardProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: isHovered ? 0.1 : 0 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-gradient-to-r from-gold-500/20 via-transparent to-gold-500/20"
+              // This overlay is purely visual; it must not block clicks on the action buttons.
+              className="absolute inset-0 z-0 pointer-events-none bg-gradient-to-r from-gold-500/20 via-transparent to-gold-500/20"
             />
           )}
         </AnimatePresence>
 
-        <CardContent className="p-5">
+        <CardContent className="relative z-10 p-5">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">

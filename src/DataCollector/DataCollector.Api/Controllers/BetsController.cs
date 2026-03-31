@@ -44,8 +44,8 @@ public class BetsController : ControllerBase
                 Id = b.Match.Id,
                 ExternalId = b.Match.ExternalId,
                 Sport = b.Match.Sport,
-                HomeTeam = "Home",  // Would need to join with Teams table
-                AwayTeam = "Away",  // Would need to join with Teams table
+                HomeTeam = b.Match.HomeTeam?.Name ?? string.Empty,
+                AwayTeam = b.Match.AwayTeam?.Name ?? string.Empty,
                 CommenceTime = b.Match.CommenceTime,
                 Status = b.Match.Status,
                 HomeScore = b.Match.HomeScore,
@@ -72,6 +72,55 @@ public class BetsController : ControllerBase
             SettledAt = b.SettledAt ?? b.PlacedAt
         });
         
+        return Ok(dtos);
+    }
+
+    /// <summary>
+    /// Gets all pending bets (Result == PENDING).
+    /// </summary>
+    [HttpGet("pending")]
+    public async Task<ActionResult<IEnumerable<BetResultDto>>> GetPending(
+        CancellationToken cancellationToken)
+    {
+        var bets = await _betRepository.GetPendingBetsAsync(cancellationToken);
+
+        var dtos = bets.Select(b => new BetResultDto
+        {
+            Id = b.Id,
+            MatchId = b.MatchId,
+            Match = b.Match != null ? new MatchDto
+            {
+                Id = b.Match.Id,
+                ExternalId = b.Match.ExternalId,
+                Sport = b.Match.Sport,
+                HomeTeam = b.Match.HomeTeam?.Name ?? string.Empty,
+                AwayTeam = b.Match.AwayTeam?.Name ?? string.Empty,
+                CommenceTime = b.Match.CommenceTime,
+                Status = b.Match.Status,
+                HomeScore = b.Match.HomeScore,
+                AwayScore = b.Match.AwayScore,
+                Minute = b.Match.Minute
+            } : null!,
+            Recommendation = new RecommendedMarketDto
+            {
+                Market = b.Market,
+                Outcome = b.Outcome,
+                Bookmaker = b.Bookmaker ?? string.Empty,
+                Odd = b.OddPlaced,
+                ImpliedProbability = 0,
+                ModelProbability = 0,
+                Value = 0,
+                KellyFraction = 0,
+                StakeEuros = b.StakeEuros,
+                Confidence = b.Recommendation?.Confidence ?? 0
+            },
+            StakeActual = b.StakeEuros,
+            OddActual = b.OddPlaced,
+            Outcome = b.Result ?? "PENDING",
+            ProfitLoss = b.ProfitLoss ?? 0,
+            SettledAt = b.SettledAt ?? b.PlacedAt
+        });
+
         return Ok(dtos);
     }
 

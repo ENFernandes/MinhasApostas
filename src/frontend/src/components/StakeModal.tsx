@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Wallet, Calculator, Trophy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,6 +31,10 @@ export function StakeModal() {
     }
   }, [rec])
 
+  // Ensure the modal is rendered at the document root to avoid being clipped
+  // by any parent with transforms/overflow.
+  const portalTarget = typeof document !== 'undefined' ? document.body : null
+
   const handleSubmit = async () => {
     if (!selectedMatchId || stake <= 0 || odd <= 0) return
 
@@ -51,42 +56,48 @@ export function StakeModal() {
   }
 
   return (
-    <AnimatePresence>
-      {isStakeModalOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-            onClick={closeStakeModal}
-          />
-
-          {/* Modal */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-50"
-          >
-            <Card className="border-gold-500/20 shadow-2xl shadow-gold-500/10">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <Wallet className="w-5 h-5 text-gold-400" />
-                  Registar Aposta
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
+    portalTarget
+      ? createPortal(
+          <AnimatePresence>
+            {isStakeModalOpen && (
+              <>
+                {/* Backdrop */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
                   onClick={closeStakeModal}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </CardHeader>
+                />
 
-              <CardContent className="space-y-5">
+                {/* Modal */}
+                <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8 overflow-y-auto">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98, y: 16 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.98, y: 16 }}
+                    className="w-full max-w-md"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Registar Aposta"
+                  >
+                    <Card className="border-gold-500/20 shadow-2xl shadow-gold-500/10 max-h-[90vh] overflow-y-auto">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-xl">
+                        <Wallet className="w-5 h-5 text-gold-400" />
+                        Registar Aposta
+                      </CardTitle>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={closeStakeModal}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </CardHeader>
+
+                    <CardContent className="space-y-5">
                 {/* Match Context */}
                 {match && (
                   <div className="p-3 rounded-lg bg-navy-800/50 border border-navy-700">
@@ -226,11 +237,15 @@ export function StakeModal() {
                 >
                   {registerBet.isPending ? 'A registar...' : 'Confirmar Aposta'}
                 </Button>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+                    </CardContent>
+                  </Card>
+                  </motion.div>
+                </div>
+              </>
+            )}
+          </AnimatePresence>,
+          portalTarget
+        )
+      : null
   )
 }

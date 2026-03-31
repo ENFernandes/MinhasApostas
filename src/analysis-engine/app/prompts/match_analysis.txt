@@ -14,6 +14,17 @@ Dados do jogo:
 Probabilidades do modelo estatístico:
 {model_probabilities}
 
+Forma recente {home_team} (casa, últimos 5):
+{home_form_summary}
+Médias: {home_avg_scored} golos marcados, {home_avg_conceded} sofridos
+
+Forma recente {away_team} (fora, últimos 5):
+{away_form_summary}
+Médias: {away_avg_scored} golos marcados, {away_avg_conceded} sofridos
+
+Histórico H2H (últimos 5 encontros):
+{h2h_summary}
+
 Odds disponíveis por bookmaker:
 {available_odds}
 

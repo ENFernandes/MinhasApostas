@@ -37,7 +37,12 @@ public class MatchesController : ControllerBase
         var from = request.From ?? DateTime.UtcNow;
         var to = request.To ?? DateTime.UtcNow.AddDays(1);
 
-        var matches = await _matchRepository.GetUpcomingAsync(from, to, request.Sport, cancellationToken);
+        var matches = await _matchRepository.GetUpcomingAsync(
+            from,
+            to,
+            request.Sport,
+            onlyWithOdds: request.OnlyWithOdds == true,
+            cancellationToken: cancellationToken);
 
         var dtos = matches.Select(m => new MatchDto
         {

@@ -42,6 +42,7 @@ External APIs → Data Collector → RabbitMQ → Analysis Engine → PostgreSQL
 #### Infrastructure
 - [x] Fixed all Docker build errors
 - [x] Updated docker-compose.yml with proper RabbitMQ and port configurations
+- [x] Fixed `analysis-engine` healthcheck (health: curl not required)
 - [x] Consolidated database migrations into single file
 - [x] All 7 containers are healthy and running
 
@@ -70,6 +71,7 @@ External APIs → Data Collector → RabbitMQ → Analysis Engine → PostgreSQL
 - [x] Updated `useApi.ts` hooks to fetch real data from backend
 - [x] Updated `dashboard/index.tsx` to remove mock data
 - [x] Fixed `vite.config.ts` proxy settings for Data Collector and Analysis Engine
+- [x] Fixed `MatchCard` glow overlay blocking "Análise" and "Apostar" clicks
 
 #### RabbitMQ
 - [x] Exchanges declared:

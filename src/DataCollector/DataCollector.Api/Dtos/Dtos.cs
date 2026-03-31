@@ -27,6 +27,7 @@ public class GetUpcomingMatchesRequest
     public string? Competition { get; set; }
     public DateTime? From { get; set; }
     public DateTime? To { get; set; }
+    public bool? OnlyWithOdds { get; set; }
 }
 
 /// <summary>
