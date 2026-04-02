@@ -36,24 +36,7 @@ public class RecommendationsController : ControllerBase
             request.Sport, 
             cancellationToken);
         
-        var dtos = recommendations.Select(r => new RecommendationDto
-        {
-            Id = r.Id,
-            MatchId = r.MatchId,
-            Market = r.Market,
-            Outcome = r.Outcome,
-            Bookmaker = r.Bookmaker ?? string.Empty,
-            OddDecimal = r.OddDecimal,
-            ModelProbability = r.ModelProbability,
-            ImpliedProbability = r.ImpliedProbability ?? 0,
-            Value = r.Value ?? 0,
-            KellyFraction = r.KellyFraction ?? 0,
-            StakeEuros = r.StakeEuros ?? 0,
-            Confidence = r.Confidence ?? 0,
-            Reasoning = r.Reasoning,
-            Status = r.Status,
-            CreatedAt = r.CreatedAt
-        });
+        var dtos = recommendations.Select(ToDto);
         
         return Ok(dtos);
     }
@@ -86,26 +69,7 @@ public class RecommendationsController : ControllerBase
         };
 
         var created = await _recommendationRepository.CreateAsync(entity, cancellationToken);
-
-        var dto = new RecommendationDto
-        {
-            Id = created.Id,
-            MatchId = created.MatchId,
-            Market = created.Market,
-            Outcome = created.Outcome,
-            Bookmaker = created.Bookmaker ?? string.Empty,
-            OddDecimal = created.OddDecimal,
-            ModelProbability = created.ModelProbability,
-            ImpliedProbability = created.ImpliedProbability ?? 0,
-            Value = created.Value ?? 0,
-            KellyFraction = created.KellyFraction ?? 0,
-            StakeEuros = created.StakeEuros ?? 0,
-            Confidence = created.Confidence ?? 0,
-            Reasoning = created.Reasoning,
-            Status = created.Status,
-            CreatedAt = created.CreatedAt
-        };
-
+        var dto = ToDto(created);
         return CreatedAtAction(nameof(GetById), new { id = dto.Id }, dto);
     }
 
@@ -118,29 +82,59 @@ public class RecommendationsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var recommendation = await _recommendationRepository.GetByIdAsync(id, cancellationToken);
-        
+
         if (recommendation == null)
         {
             return NotFound();
         }
 
-        return Ok(new RecommendationDto
-        {
-            Id = recommendation.Id,
-            MatchId = recommendation.MatchId,
-            Market = recommendation.Market,
-            Outcome = recommendation.Outcome,
-            Bookmaker = recommendation.Bookmaker ?? string.Empty,
-            OddDecimal = recommendation.OddDecimal,
-            ModelProbability = recommendation.ModelProbability,
-            ImpliedProbability = recommendation.ImpliedProbability ?? 0,
-            Value = recommendation.Value ?? 0,
-            KellyFraction = recommendation.KellyFraction ?? 0,
-            StakeEuros = recommendation.StakeEuros ?? 0,
-            Confidence = recommendation.Confidence ?? 0,
-            Reasoning = recommendation.Reasoning,
-            Status = recommendation.Status,
-            CreatedAt = recommendation.CreatedAt
-        });
+        return Ok(ToDto(recommendation));
     }
+
+    /// <summary>
+    /// Regista o resultado de uma aposta: WON, LOST ou VOID.
+    /// </summary>
+    [HttpPatch("{id:guid}/outcome")]
+    public async Task<ActionResult<RecommendationDto>> RecordOutcome(
+        Guid id,
+        [FromBody] RecordOutcomeRequest request,
+        CancellationToken cancellationToken)
+    {
+        var valid = new[] { "WON", "LOST", "VOID" };
+        if (!valid.Contains(request.Outcome.ToUpperInvariant()))
+        {
+            return BadRequest(new { error = "Outcome must be WON, LOST or VOID" });
+        }
+
+        var updated = await _recommendationRepository.UpdateOutcomeAsync(
+            id, request.Outcome, "manual", cancellationToken);
+
+        if (updated is null) return NotFound();
+
+        _logger.LogInformation(
+            "Recommendation outcome recorded: {Id} → {Outcome}", id, request.Outcome);
+
+        return Ok(ToDto(updated));
+    }
+
+    private static RecommendationDto ToDto(RecommendationEntity r) => new()
+    {
+        Id = r.Id,
+        MatchId = r.MatchId,
+        Market = r.Market,
+        Outcome = r.Outcome,
+        Bookmaker = r.Bookmaker ?? string.Empty,
+        OddDecimal = r.OddDecimal,
+        ModelProbability = r.ModelProbability,
+        ImpliedProbability = r.ImpliedProbability ?? 0,
+        Value = r.Value ?? 0,
+        KellyFraction = r.KellyFraction ?? 0,
+        StakeEuros = r.StakeEuros ?? 0,
+        Confidence = r.Confidence ?? 0,
+        Reasoning = r.Reasoning,
+        Status = r.Status,
+        BetOutcome = r.BetOutcome,
+        OutcomeRecordedAt = r.OutcomeRecordedAt,
+        CreatedAt = r.CreatedAt
+    };
 }

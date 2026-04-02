@@ -32,7 +32,8 @@ class ModelProbabilities(BaseModel):
     away: float = Field(..., ge=0, le=1)
     over_2_5: float = Field(..., ge=0, le=1)
     btts: float = Field(..., ge=0, le=1)
-    data_source: str = "implied_probability"  # poisson_historical | elo_hard | elo_clay | implied_probability
+    # poisson_historical | xgboost | implied_probability | placeholder_1x2 | elo_* (ténis)
+    data_source: str = "implied_probability"
 
 
 class OddsData(BaseModel):

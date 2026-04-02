@@ -79,20 +79,22 @@ public class Program
 
         builder.Services.AddHangfireServer();
 
-        // Refit Clients
+        // Refit Clients — todos com resilience (retry + circuit breaker via Polly)
         builder.Services.AddRefitClient<IFootballDataClient>()
             .ConfigureHttpClient(client =>
             {
                 client.BaseAddress = new Uri("https://api.football-data.org/v4");
                 client.DefaultRequestHeaders.Add("X-Auth-Token",
                     builder.Configuration["ApiKeys:FootballData"]!);
-            });
+            })
+            .AddSportsBettingResilience("FootballData");
 
         builder.Services.AddRefitClient<ITennisApiClient>()
             .ConfigureHttpClient(client =>
             {
                 client.BaseAddress = new Uri("https://api.api-tennis.com/tennis");
-            });
+            })
+            .AddSportsBettingResilience("TennisApi");
 
         builder.Services.AddRefitClient<IApiFootballClient>()
             .ConfigureHttpClient(client =>
@@ -100,7 +102,8 @@ public class Program
                 client.BaseAddress = new Uri("https://v3.football.api-sports.io");
                 client.DefaultRequestHeaders.Add("x-apisports-key",
                     builder.Configuration["ApiKeys:ApiFootball"] ?? string.Empty);
-            });
+            })
+            .AddSportsBettingResilience("ApiFootball");
 
         builder.Services.AddTransient<OddsApiKeyHandler>();
         builder.Services.AddRefitClient<IOddsApiClient>()
@@ -108,7 +111,8 @@ public class Program
             {
                 client.BaseAddress = new Uri("https://api.the-odds-api.com/v4");
             })
-            .AddHttpMessageHandler<OddsApiKeyHandler>();
+            .AddHttpMessageHandler<OddsApiKeyHandler>()
+            .AddSportsBettingResilience("OddsApi");
 
         // Message Queue
         builder.Services.AddSingleton<IMessageQueuePublisher, RabbitMqPublisher>();

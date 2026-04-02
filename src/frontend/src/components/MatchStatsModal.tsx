@@ -1,8 +1,10 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, BarChart3 } from 'lucide-react'
 import { useMatchStats } from '@/hooks/useStatsApi'
+import { useTennisPlayerStats } from '@/hooks/useTennisStatsApi'
 import { TeamForm } from './TeamForm'
 import { HeadToHeadStats } from './HeadToHeadStats'
+import { TennisPlayerStatsCard } from './TennisPlayerStatsCard'
 import { Button } from '@/components/ui/button'
 import { formatDateTime } from '@/lib/utils'
 import type { Match } from '@/types'
@@ -19,6 +21,8 @@ export function MatchStatsModal({ match, isOpen, onClose }: MatchStatsModalProps
     match?.awayTeam || '',
     match?.sport || 'football'
   )
+  const homeTennis = useTennisPlayerStats(match?.sport === 'tennis' ? match?.homeTeam || '' : '')
+  const awayTennis = useTennisPlayerStats(match?.sport === 'tennis' ? match?.awayTeam || '' : '')
 
   if (!match) return null
 
@@ -67,7 +71,52 @@ export function MatchStatsModal({ match, isOpen, onClose }: MatchStatsModalProps
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6">
-              {isLoading ? (
+              {match.sport === 'tennis' ? (
+                homeTennis.isLoading || awayTennis.isLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-8 h-8 border-2 border-gold-400 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-slate-400">A carregar estatísticas de ténis...</p>
+                    </div>
+                  </div>
+                ) : homeTennis.isError || awayTennis.isError ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <p className="text-red-400 mb-2">Erro ao carregar estatísticas</p>
+                      <Button onClick={() => window.location.reload()} variant="outline" size="sm">
+                        Tentar novamente
+                      </Button>
+                    </div>
+                  </div>
+                ) : (() => {
+                  const home = homeTennis.data
+                  const away = awayTennis.data
+                  const noData =
+                    (!home || (!home.recentResults?.length && !Object.keys(home.eloBySurface ?? {}).length)) &&
+                    (!away || (!away.recentResults?.length && !Object.keys(away.eloBySurface ?? {}).length))
+
+                  if (noData) {
+                    return (
+                      <div className="flex items-center justify-center h-full py-16">
+                        <div className="text-center">
+                          <BarChart3 className="w-12 h-12 mx-auto text-navy-600 mb-3" />
+                          <p className="text-slate-400 font-medium">Dados estatísticos não disponíveis</p>
+                          <p className="text-sm text-slate-500 mt-1">
+                            Ainda não temos histórico local suficiente para este jogador.
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {home && <TennisPlayerStatsCard sideLabel="Casa" stats={home} />}
+                      {away && <TennisPlayerStatsCard sideLabel="Fora" stats={away} />}
+                    </div>
+                  )
+                })()
+              ) : isLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-8 h-8 border-2 border-gold-400 border-t-transparent rounded-full animate-spin" />
@@ -95,9 +144,7 @@ export function MatchStatsModal({ match, isOpen, onClose }: MatchStatsModalProps
                         <BarChart3 className="w-12 h-12 mx-auto text-navy-600 mb-3" />
                         <p className="text-slate-400 font-medium">Dados estatísticos não disponíveis</p>
                         <p className="text-sm text-slate-500 mt-1">
-                          {match.sport === 'tennis'
-                            ? 'Ainda não temos histórico local suficiente para ténis.'
-                            : 'A API gratuita não fornece dados para esta competição.'}
+                          A API gratuita não fornece dados para esta competição.
                         </p>
                       </div>
                     </div>

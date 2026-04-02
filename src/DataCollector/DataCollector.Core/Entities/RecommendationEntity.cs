@@ -19,6 +19,9 @@ public class RecommendationEntity
     public int? Confidence { get; set; }
     public string? Reasoning { get; set; }
     public string Status { get; set; } = "PENDING"; // PENDING, ACTIVE, SETTLED, CANCELLED
+    public string? BetOutcome { get; set; } // WON | LOST | VOID
+    public DateTime? OutcomeRecordedAt { get; set; }
+    public string OutcomeSource { get; set; } = "manual"; // manual | auto
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     

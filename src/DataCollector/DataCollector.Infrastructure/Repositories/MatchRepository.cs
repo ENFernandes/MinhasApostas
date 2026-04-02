@@ -30,22 +30,31 @@ public class MatchRepository : IMatchRepository
         DateTime to,
         string? sport = null,
         bool onlyWithOdds = false,
+        DateTime? asOfUtc = null,
         CancellationToken cancellationToken = default)
     {
-        var now = DateTime.UtcNow;
+        // asOfUtc: permite testes determinísticos; em produção = null → UtcNow
+        var now = asOfUtc ?? DateTime.UtcNow;
+        // Janela inferior para agendados: respeita `from` do cliente; se from ≈ "agora", inclui
+        // kickoffs até 30 min no passado (atrasos). Se from é futuro (ex.: filtro na UI), usa from.
+        var slackLower = now.AddMinutes(-30);
+        var scheduledLower = from > now
+            ? from
+            : (from <= slackLower ? from : slackLower);
+
         var query = _context.Matches
+            .AsNoTracking()
             .Include(m => m.Competition)
             .Include(m => m.HomeTeam)
             .Include(m => m.AwayTeam)
             .Where(m => m.CommenceTime <= to)
             .Where(m =>
-                // Jogos ao vivo: mostrar sempre independente da hora
+                // Ao vivo: até ao limite superior; sem corte inferior agressivo (evita regressões na listagem)
                 (m.Status == "LIVE" || m.Status == "IN_PLAY" || m.Status == "PAUSED")
                 ||
-                // Jogos agendados: só mostrar se ainda não começaram (margem 30 min para atrasos)
+                // Agendados: janela [scheduledLower, to] — scheduledLower incorpora `from` e tolerância
                 ((m.Status == "SCHEDULED" || m.Status == null || m.Status == "")
-                 && m.CommenceTime >= now.AddMinutes(-30))
-            );
+                 && m.CommenceTime >= scheduledLower));
 
         if (!string.IsNullOrEmpty(sport))
         {

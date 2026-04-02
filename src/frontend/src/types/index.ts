@@ -25,6 +25,8 @@ export interface ModelProbabilities {
   away: number
   over_2_5: number
   btts: number
+  /** Origem das probabilidades (ex. xgboost, poisson_historical, placeholder_1x2) */
+  dataSource?: string
 }
 
 export interface RecommendedMarket {

@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
+import { Link, useSearchParams } from 'react-router-dom'
 import { 
   Calendar, 
+  Sparkles,
   BarChart3, 
   ChevronRight,
   Clock,
@@ -13,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useMatches } from '@/hooks/useApi'
 import { MatchStatsModal } from '@/components/MatchStatsModal'
+import { MatchAnalysisModal } from '@/components/MatchAnalysisModal'
 import { useAppStore } from '@/stores/appStore'
 import { formatTime } from '@/lib/utils'
 import type { Match } from '@/types'
@@ -22,8 +25,12 @@ export default function TodayMatchesPage() {
   const { data: matches, isLoading } = useMatches()
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [analysisMatch, setAnalysisMatch] = useState<Match | null>(null)
+  const [isAnalysisOpen, setIsAnalysisOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const competitionFilter = searchParams.get('competition') ?? ''
 
-  const filteredMatches = useMemo(() => {
+  const baseTodayMatches = useMemo(() => {
     if (!matches) return []
     
     const today = new Date()
@@ -31,18 +38,54 @@ export default function TodayMatchesPage() {
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
     
-    const todayMatches = matches.filter((m) => {
+    return matches.filter((m) => {
       const matchDate = new Date(m.commenceTime)
       return matchDate >= today && matchDate < tomorrow
     })
-    
-    if (selectedSport === 'all') return todayMatches
-    return todayMatches.filter((m) => m.sport === selectedSport)
-  }, [matches, selectedSport])
+  }, [matches])
+
+  const sportFilteredMatches = useMemo(() => {
+    if (selectedSport === 'all') return baseTodayMatches
+    return baseTodayMatches.filter((m) => m.sport === selectedSport)
+  }, [baseTodayMatches, selectedSport])
+
+  const availableCompetitions = useMemo(() => {
+    const comps = new Set(
+      sportFilteredMatches
+        .map((m) => (m.competition || '').trim())
+        .filter(Boolean)
+    )
+    return Array.from(comps).sort()
+  }, [sportFilteredMatches])
+
+  const filteredMatches = useMemo(() => {
+    return sportFilteredMatches.filter((m) => {
+      if (!competitionFilter) return true
+      const comp = (m.competition || '').trim()
+      return comp === competitionFilter
+    })
+  }, [sportFilteredMatches, competitionFilter])
+
+  const setCompetitionFilter = (competition: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (!competition) {
+      next.delete('competition')
+    } else {
+      next.set('competition', competition)
+    }
+    setSearchParams(next, { replace: true })
+  }
 
   const handleMatchClick = (match: Match) => {
     setSelectedMatch(match)
     setIsModalOpen(true)
+  }
+
+  const handleAnalyzeClick = (e: React.MouseEvent, match: Match) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setAnalysisMatch(match)
+    setIsAnalysisOpen(true)
   }
 
   const formatMatchTime = (dateString: string) => {
@@ -89,20 +132,55 @@ export default function TodayMatchesPage() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-          <Tabs value={selectedSport} onValueChange={(v) => setSelectedSport(v as any)}>
-            <TabsList className="bg-navy-800/50 border border-navy-700">
-              <TabsTrigger value="all" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                Todos
-              </TabsTrigger>
-              <TabsTrigger value="football" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                Futebol
-              </TabsTrigger>
-              <TabsTrigger value="tennis" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                Ténis
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+        <div className="flex flex-col gap-4 mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="inline-flex rounded-lg border border-navy-700 bg-navy-900/50 p-1">
+              <Link
+                to={{ pathname: '/today', search: searchParams.toString() }}
+                className="px-3 py-1.5 text-sm font-medium rounded-md bg-blue-500 text-white"
+              >
+                Hoje
+              </Link>
+              <Link
+                to={{ pathname: '/upcoming', search: searchParams.toString() }}
+                className="px-3 py-1.5 text-sm font-medium rounded-md text-slate-200 hover:text-white hover:bg-navy-800/60 transition-colors"
+              >
+                Futuro
+              </Link>
+            </div>
+
+            <div className="w-full sm:w-80">
+              <label className="text-slate-400 mb-2 block text-sm">Torneio / Liga</label>
+              <select
+                value={competitionFilter}
+                onChange={(e) => setCompetitionFilter(e.target.value)}
+                className="w-full px-3 py-2 bg-navy-800 border border-navy-700 rounded-md text-slate-200 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">Todos</option>
+                {availableCompetitions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <Tabs value={selectedSport} onValueChange={(v) => setSelectedSport(v as any)}>
+              <TabsList className="bg-navy-800/50 border border-navy-700">
+                <TabsTrigger value="all" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+                  Todos
+                </TabsTrigger>
+                <TabsTrigger value="football" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+                  Futebol
+                </TabsTrigger>
+                <TabsTrigger value="tennis" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
+                  Ténis
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </div>
 
         {/* Matches List */}
@@ -164,10 +242,25 @@ export default function TodayMatchesPage() {
                             {match.competition}
                           </Badge>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => handleAnalyzeClick(e, match)}
+                          className="text-gold-400 hover:text-gold-300 hover:bg-gold-500/10"
+                        >
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          <span className="hidden sm:inline">Análise</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
                         <Button 
                           variant="ghost" 
                           size="sm" 
                           className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            handleMatchClick(match)
+                          }}
                         >
                           <BarChart3 className="w-4 h-4 mr-2" />
                           <span className="hidden sm:inline">Estatísticas</span>
@@ -201,6 +294,13 @@ export default function TodayMatchesPage() {
         match={selectedMatch}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+      />
+
+      {/* Analysis Modal */}
+      <MatchAnalysisModal
+        match={analysisMatch}
+        isOpen={isAnalysisOpen}
+        onClose={() => setIsAnalysisOpen(false)}
       />
     </div>
   )

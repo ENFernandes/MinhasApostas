@@ -70,4 +70,35 @@ public class RecommendationRepository : IRecommendationRepository, IScopedServic
         _context.Recommendations.Update(recommendation);
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<IEnumerable<RecommendationEntity>> GetResolvedAsync(
+        int days = 30,
+        CancellationToken cancellationToken = default)
+    {
+        var since = DateTime.UtcNow.AddDays(-days);
+        return await _context.Recommendations
+            .Where(r => r.BetOutcome != null && r.OutcomeRecordedAt >= since)
+            .OrderBy(r => r.OutcomeRecordedAt)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<RecommendationEntity?> UpdateOutcomeAsync(
+        Guid id,
+        string outcome,
+        string source = "manual",
+        CancellationToken cancellationToken = default)
+    {
+        var rec = await _context.Recommendations.FindAsync([id], cancellationToken);
+        if (rec is null) return null;
+
+        rec.BetOutcome = outcome.ToUpperInvariant();
+        rec.OutcomeRecordedAt = DateTime.UtcNow;
+        rec.OutcomeSource = source;
+        rec.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return rec;
+    }
 }

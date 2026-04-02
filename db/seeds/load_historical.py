@@ -15,8 +15,8 @@ Uso:
 Tempo estimado: 10-20 minutos dependendo da ligação.
 
 Requisitos:
-  pip install pandas sqlalchemy psycopg2-binary statsbombpy tqdm
-  Variáveis de ambiente: POSTGRES_* no .env
+  pip install pandas sqlalchemy psycopg2-binary statsbombpy tqdm python-dotenv
+  Variáveis de ambiente: POSTGRES_* (lidas de `.env` na raiz do repo)
 """
 
 import argparse
@@ -33,8 +33,28 @@ from tqdm import tqdm
 
 log = structlog.get_logger()
 
+# Raiz do repositório (db/seeds/ -> db/ -> raiz)
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _load_dotenv() -> None:
+    """Carrega `.env` na raiz do projeto (não é automático no Python)."""
+    env_path = _REPO_ROOT / ".env"
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(env_path)
+    except ImportError:
+        log.warning(
+            "python-dotenv não instalado — instala com: pip install python-dotenv",
+            env_file=str(env_path),
+        )
+
+
+_load_dotenv()
+
 # ─────────────────────────────────────────
-# Configuração
+# Configuração (após .env)
 # ─────────────────────────────────────────
 
 POSTGRES_URL = (
@@ -131,6 +151,20 @@ def load_football_historical(engine: Engine) -> None:
                 ] if c in df.columns]
 
                 df = df[cols].dropna(subset=["home_team", "away_team", "home_goals"])
+
+                # Normalizar nomes e datas para alinhar com idx_historical_matches_unique e evitar duplicados óbvios
+                df["home_team"] = df["home_team"].astype(str).str.strip()
+                df["away_team"] = df["away_team"].astype(str).str.strip()
+                df["_match_dt"] = pd.to_datetime(
+                    df["match_date"], dayfirst=True, errors="coerce"
+                )
+                df = df.dropna(subset=["_match_dt"])
+                df["match_date"] = df["_match_dt"].dt.strftime("%Y-%m-%d")
+                df = df.drop(columns=["_match_dt"])
+                df = df.drop_duplicates(
+                    subset=["match_date", "home_team", "away_team", "league_code", "season"],
+                    keep="first",
+                )
 
                 df.to_sql(
                     "historical_matches",

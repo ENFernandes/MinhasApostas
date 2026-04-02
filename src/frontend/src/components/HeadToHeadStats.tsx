@@ -24,7 +24,8 @@ export function HeadToHeadStats({ stats, homeTeamName, awayTeamName }: HeadToHea
           <History className="w-5 h-5 text-gold-400" />
           Confrontos Diretos
           <span className="text-sm font-normal text-slate-400">
-            ({stats.totalMatches} jogos)
+            ({stats.totalMatches}{' '}
+            {stats.totalMatches === 1 ? 'jogo' : 'jogos'})
           </span>
         </CardTitle>
       </CardHeader>

@@ -22,6 +22,8 @@ public class SportsBettingDbContext : DbContext
     public DbSet<RecommendationEntity> Recommendations => Set<RecommendationEntity>();
     public DbSet<BetEntity> Bets => Set<BetEntity>();
     public DbSet<MatchLineupEntity> MatchLineups => Set<MatchLineupEntity>();
+    public DbSet<PlayerEloHistoryEntity> PlayerEloHistory => Set<PlayerEloHistoryEntity>();
+    public DbSet<LatestPlayerEloEntity> LatestPlayerElo => Set<LatestPlayerEloEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -152,6 +154,24 @@ public class SportsBettingDbContext : DbContext
             entity.Property(e => e.Formation).HasMaxLength(10);
             entity.Property(e => e.Players).HasColumnType("jsonb").IsRequired();
             entity.Property(e => e.Substitutes).HasColumnType("jsonb").IsRequired();
+        });
+
+        // Historical tennis ELO snapshots (seeded)
+        modelBuilder.Entity<PlayerEloHistoryEntity>(entity =>
+        {
+            entity.ToTable("player_elo_history");
+            entity.HasNoKey();
+            entity.Property(e => e.PlayerName).HasColumnName("player_name");
+            entity.Property(e => e.MatchDate).HasColumnName("match_date");
+        });
+
+        // View: latest_player_elo (keyless)
+        modelBuilder.Entity<LatestPlayerEloEntity>(entity =>
+        {
+            entity.ToView("latest_player_elo");
+            entity.HasNoKey();
+            entity.Property(e => e.PlayerName).HasColumnName("player_name");
+            entity.Property(e => e.LastMatchDate).HasColumnName("last_match_date");
         });
     }
 }

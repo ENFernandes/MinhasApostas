@@ -4,6 +4,7 @@ using SportsBetting.DataCollector.Infrastructure.Clients;
 using SportsBetting.DataCollector.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Globalization;
 
 namespace SportsBetting.DataCollector.Infrastructure.Services;
 
@@ -77,7 +78,11 @@ public class TeamStatsService : ITeamStatsService, IScopedService
                 .ToListAsync(cancellationToken);
 
             if (matches.Count == 0)
-                return new TeamFormDto { TeamName = playerName };
+            {
+                // Fallback to seeded historical ELO snapshots when we don't have enough finished tennis matches
+                // in the local matches table yet.
+                return await GetTennisFormFromHistoricalEloAsync(playerName, cancellationToken);
+            }
 
             var results = new List<MatchResultDto>();
             int homeScoreSum = 0, homeConcededSum = 0;
@@ -131,8 +136,100 @@ public class TeamStatsService : ITeamStatsService, IScopedService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error building tennis form from DB for {PlayerName}", playerName);
+            // Last resort fallback: try seeded historical ELO.
+            return await GetTennisFormFromHistoricalEloAsync(playerName, cancellationToken);
+        }
+    }
+
+    private async Task<TeamFormDto> GetTennisFormFromHistoricalEloAsync(string playerName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // We use raw SQL to avoid provider translation edge-cases with pattern matching.
+            // 1) Try direct contains match first.
+            var pattern = $"%{playerName}%";
+            var rows = await _context.PlayerEloHistory
+                .FromSqlInterpolated($"""
+                    SELECT player_name, surface, elo, tour, match_date, won
+                    FROM player_elo_history
+                    WHERE player_name ILIKE {pattern}
+                    ORDER BY match_date DESC NULLS LAST
+                    LIMIT 10
+                    """)
+                .Select(r => new { r.MatchDate, r.Won })
+                .ToListAsync(cancellationToken);
+
+            // 2) If query used abbreviations like "J. Mikulskyte", try (initial + lastname) match.
+            if (rows.Count == 0)
+            {
+                var trimmed = playerName.Trim();
+                var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (parts.Length >= 2 && parts[0].EndsWith(".", StringComparison.Ordinal))
+                {
+                    var initial = parts[0].TrimEnd('.');
+                    var lastName = parts[^1];
+                    var abbrPattern = $"{initial}% {lastName}";
+
+                    // Match: first letter of first name equals initial AND last token equals lastName.
+                    rows = await _context.PlayerEloHistory
+                        .FromSqlInterpolated($"""
+                            SELECT player_name, surface, elo, tour, match_date, won
+                            FROM player_elo_history
+                            WHERE
+                                player_name ILIKE {abbrPattern}
+                            ORDER BY match_date DESC NULLS LAST
+                            LIMIT 10
+                            """)
+                        .Select(r => new { r.MatchDate, r.Won })
+                        .ToListAsync(cancellationToken);
+                }
+            }
+
+            if (rows.Count == 0)
+                return new TeamFormDto { TeamName = playerName };
+
+            var results = new List<MatchResultDto>();
+            foreach (var r in rows)
+            {
+                var date = ParseSackmannDateOrUtcNow(r.MatchDate?.ToString(CultureInfo.InvariantCulture));
+                results.Add(new MatchResultDto
+                {
+                    Date = date,
+                    Opponent = "Histórico (Sackmann)",
+                    IsHome = true,
+                    GoalsScored = 0,
+                    GoalsConceded = 0,
+                    Result = r.Won == true ? "W" : "L"
+                });
+            }
+
+            // Provide simple averages as zeros; UI uses Last10Games primarily.
+            return new TeamFormDto
+            {
+                TeamName = playerName,
+                Last10Games = results,
+                AvgGoalsScoredHome = 0,
+                AvgGoalsScoredAway = 0,
+                AvgGoalsConcededHome = 0,
+                AvgGoalsConcededAway = 0
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error building tennis form from historical ELO for {PlayerName}", playerName);
             return new TeamFormDto { TeamName = playerName };
         }
+    }
+
+    private static DateTime ParseSackmannDateOrUtcNow(string? yyyymmdd)
+    {
+        if (!string.IsNullOrWhiteSpace(yyyymmdd) &&
+            DateTime.TryParseExact(yyyymmdd, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dt))
+        {
+            return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+        }
+
+        return DateTime.UtcNow;
     }
 
     private async Task<HeadToHeadDto> GetTennisHeadToHeadFromDbAsync(string playerA, string playerB, CancellationToken cancellationToken)
@@ -338,6 +435,197 @@ public class TeamStatsService : ITeamStatsService, IScopedService
 
     private async Task<HeadToHeadDto> GetFootballHeadToHeadAsync(string homeTeam, string awayTeam, CancellationToken cancellationToken)
     {
+        try
+        {
+            var fromDb = await GetFootballHeadToHeadFromHistoricalAsync(homeTeam, awayTeam, cancellationToken);
+            if (fromDb.TotalMatches > 0)
+                return fromDb;
+
+            return await GetFootballHeadToHeadFromApiAsync(homeTeam, awayTeam, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error building head-to-head for {HomeTeam} vs {AwayTeam}", homeTeam, awayTeam);
+            return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
+        }
+    }
+
+    /// <summary>
+    /// Head-to-head from seeded football-data.co.uk rows. Uses flexible name matching because
+    /// API/UI names (e.g. "Real Sociedad de Fútbol") differ from CSV short names ("Sociedad").
+    /// Dedupes identical rows (repeated seed runs) via DISTINCT ON.
+    /// </summary>
+    private async Task<HeadToHeadDto> GetFootballHeadToHeadFromHistoricalAsync(
+        string homeTeam,
+        string awayTeam,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rows = await _context.Database
+                .SqlQuery<HistoricalH2hRow>($"""
+                    SELECT DISTINCT ON (
+                        btrim(lower(hm.home_team)),
+                        btrim(lower(hm.away_team)),
+                        btrim(hm.match_date),
+                        hm.league_code,
+                        hm.season
+                    )
+                        hm.id AS "Id",
+                        hm.match_date AS "MatchDate",
+                        hm.home_team AS "HomeTeam",
+                        hm.away_team AS "AwayTeam",
+                        hm.home_goals AS "HomeGoals",
+                        hm.away_goals AS "AwayGoals",
+                        hm.result AS "Result",
+                        hm.league_name AS "LeagueName"
+                    FROM historical_matches hm
+                    WHERE hm.home_goals IS NOT NULL
+                      AND hm.away_goals IS NOT NULL
+                      AND (
+                        (
+                            (strpos(lower(btrim(hm.home_team)), lower(btrim({homeTeam}))) > 0
+                             OR strpos(lower(btrim({homeTeam})), lower(btrim(hm.home_team))) > 0)
+                            AND (strpos(lower(btrim(hm.away_team)), lower(btrim({awayTeam}))) > 0
+                                 OR strpos(lower(btrim({awayTeam})), lower(btrim(hm.away_team))) > 0)
+                        )
+                        OR
+                        (
+                            (strpos(lower(btrim(hm.home_team)), lower(btrim({awayTeam}))) > 0
+                             OR strpos(lower(btrim({awayTeam})), lower(btrim(hm.home_team))) > 0)
+                            AND (strpos(lower(btrim(hm.away_team)), lower(btrim({homeTeam}))) > 0
+                                 OR strpos(lower(btrim({homeTeam})), lower(btrim(hm.away_team))) > 0)
+                        )
+                      )
+                    ORDER BY
+                        btrim(lower(hm.home_team)),
+                        btrim(lower(hm.away_team)),
+                        btrim(hm.match_date),
+                        hm.league_code,
+                        hm.season,
+                        hm.id
+                    """)
+                .ToListAsync(cancellationToken);
+
+            if (rows.Count == 0)
+                return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
+
+            var ordered = rows
+                .Select(r => (Row: r, Dt: TryParseHistoricalMatchDate(r.MatchDate)))
+                .OrderByDescending(x => x.Dt)
+                .ToList();
+
+            int homeWins = 0, awayWins = 0, draws = 0;
+            int uiHomeGoals = 0, uiAwayGoals = 0;
+            var matchResults = new List<MatchResultDto>();
+
+            foreach (var (row, _) in ordered)
+            {
+                var isUiHomeDbHome = HistoricalNameMatches(row.HomeTeam, homeTeam)
+                    && HistoricalNameMatches(row.AwayTeam, awayTeam);
+                var isUiHomeDbAway = HistoricalNameMatches(row.HomeTeam, awayTeam)
+                    && HistoricalNameMatches(row.AwayTeam, homeTeam);
+                if (!isUiHomeDbHome && !isUiHomeDbAway)
+                    continue;
+
+                var swapped = isUiHomeDbAway;
+                var hg = row.HomeGoals ?? 0;
+                var ag = row.AwayGoals ?? 0;
+                var uiHomeScore = swapped ? ag : hg;
+                var uiAwayScore = swapped ? hg : ag;
+
+                if (uiHomeScore == uiAwayScore)
+                    draws++;
+                else if (uiHomeScore > uiAwayScore)
+                    homeWins++;
+                else
+                    awayWins++;
+
+                uiHomeGoals += uiHomeScore;
+                uiAwayGoals += uiAwayScore;
+
+                var isHomePlaying = !swapped;
+                matchResults.Add(new MatchResultDto
+                {
+                    Date = TryParseHistoricalMatchDate(row.MatchDate),
+                    Opponent = isHomePlaying ? awayTeam : homeTeam,
+                    IsHome = isHomePlaying,
+                    GoalsScored = isHomePlaying ? uiHomeScore : uiAwayScore,
+                    GoalsConceded = isHomePlaying ? uiAwayScore : uiHomeScore,
+                    Result = uiHomeScore > uiAwayScore
+                        ? "H"
+                        : uiHomeScore < uiAwayScore ? "A" : "D"
+                });
+            }
+
+            var totalMatches = matchResults.Count;
+            matchResults = matchResults
+                .OrderByDescending(m => m.Date)
+                .Take(10)
+                .ToList();
+
+            return new HeadToHeadDto
+            {
+                HomeTeam = homeTeam,
+                AwayTeam = awayTeam,
+                HomeTeamWins = homeWins,
+                AwayTeamWins = awayWins,
+                Draws = draws,
+                TotalMatches = totalMatches,
+                HomeTeamGoals = uiHomeGoals,
+                AwayTeamGoals = uiAwayGoals,
+                Matches = matchResults
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Historical H2H query failed for {HomeTeam} vs {AwayTeam}", homeTeam, awayTeam);
+            return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
+        }
+    }
+
+    private static bool HistoricalNameMatches(string dbName, string uiName)
+    {
+        var a = dbName.Trim().ToLowerInvariant();
+        var b = uiName.Trim().ToLowerInvariant();
+        return a == b || a.Contains(b, StringComparison.Ordinal) || b.Contains(a, StringComparison.Ordinal);
+    }
+
+    private static DateTime TryParseHistoricalMatchDate(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return DateTime.MinValue;
+
+        var t = raw.Trim();
+        var formats = new[]
+        {
+            "dd/MM/yyyy", "d/M/yyyy", "dd/MM/yy", "d/M/yy",
+            "yyyy-MM-dd", "dd.MM.yyyy",
+        };
+        foreach (var fmt in formats)
+        {
+            if (DateTime.TryParseExact(
+                    t,
+                    fmt,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var dt))
+            {
+                return DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+            }
+        }
+
+        if (DateTime.TryParse(t, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var any))
+            return DateTime.SpecifyKind(any.ToUniversalTime(), DateTimeKind.Utc);
+
+        return DateTime.MinValue;
+    }
+
+    private async Task<HeadToHeadDto> GetFootballHeadToHeadFromApiAsync(
+        string homeTeam,
+        string awayTeam,
+        CancellationToken cancellationToken)
+    {
         var homeTeamEntity = await _context.Matches
             .Where(m => m.HomeTeam != null && m.HomeTeam.Name == homeTeam)
             .Select(m => m.HomeTeam)
@@ -353,93 +641,103 @@ public class TeamStatsService : ITeamStatsService, IScopedService
             return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
         }
 
-        try
+        var dateFrom = DateTime.UtcNow.AddYears(-2).ToString("yyyy-MM-dd");
+        var dateTo = DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+        var homeTeamId = ExtractFootballDataTeamId(homeTeamEntity.ExternalId);
+        if (string.IsNullOrWhiteSpace(homeTeamId))
         {
-            var dateFrom = DateTime.UtcNow.AddYears(-2).ToString("yyyy-MM-dd");
-            var dateTo = DateTime.UtcNow.ToString("yyyy-MM-dd");
-
-            var homeTeamId = ExtractFootballDataTeamId(homeTeamEntity.ExternalId);
-            if (string.IsNullOrWhiteSpace(homeTeamId))
-            {
-                _logger.LogWarning("Invalid football home team ExternalId: {ExternalId}", homeTeamEntity.ExternalId);
-                return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
-            }
-
-            var homeResponse = await _footballClient.GetTeamMatchesAsync(
-                homeTeamId, dateFrom, dateTo, cancellationToken: cancellationToken);
-
-            if (homeResponse?.Content?.Matches == null)
-            {
-                return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
-            }
-
-            var h2hMatches = homeResponse.Content.Matches
-                .Where(m => m.Status == "FINISHED" && m.HomeTeam?.Name != null && m.AwayTeam?.Name != null &&
-                           ((m.HomeTeam.Name == homeTeam && m.AwayTeam.Name == awayTeam) ||
-                            (m.HomeTeam.Name == awayTeam && m.AwayTeam.Name == homeTeam)))
-                .OrderByDescending(m => m.UtcDate)
-                .Take(10)
-                .ToList();
-
-            int homeWins = 0, awayWins = 0, draws = 0;
-            int homeGoals = 0, awayGoals = 0;
-            var matchResults = new List<MatchResultDto>();
-
-            foreach (var match in h2hMatches)
-            {
-                var isHomePlaying = match.HomeTeam?.Name == homeTeam;
-                var homeScore = match.Score?.FullTime?.Home ?? 0;
-                var awayScore = match.Score?.FullTime?.Away ?? 0;
-
-                string result;
-                if (homeScore > awayScore)
-                {
-                    result = isHomePlaying ? "H" : "A";
-                    if (isHomePlaying) homeWins++; else awayWins++;
-                }
-                else if (homeScore < awayScore)
-                {
-                    result = isHomePlaying ? "A" : "H";
-                    if (isHomePlaying) awayWins++; else homeWins++;
-                }
-                else
-                {
-                    result = "D";
-                    draws++;
-                }
-
-                homeGoals += homeScore;
-                awayGoals += awayScore;
-
-                matchResults.Add(new MatchResultDto
-                {
-                    Date = match.UtcDate ?? DateTime.MinValue,
-                    Opponent = isHomePlaying ? awayTeam : homeTeam,
-                    IsHome = isHomePlaying,
-                    GoalsScored = isHomePlaying ? homeScore : awayScore,
-                    GoalsConceded = isHomePlaying ? awayScore : homeScore,
-                    Result = result
-                });
-            }
-
-            return new HeadToHeadDto
-            {
-                HomeTeam = homeTeam,
-                AwayTeam = awayTeam,
-                HomeTeamWins = homeWins,
-                AwayTeamWins = awayWins,
-                Draws = draws,
-                TotalMatches = h2hMatches.Count,
-                HomeTeamGoals = homeGoals,
-                AwayTeamGoals = awayGoals,
-                Matches = matchResults
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching head-to-head for {HomeTeam} vs {AwayTeam}", homeTeam, awayTeam);
+            _logger.LogWarning("Invalid football home team ExternalId: {ExternalId}", homeTeamEntity.ExternalId);
             return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
         }
+
+        var homeResponse = await _footballClient.GetTeamMatchesAsync(
+            homeTeamId, dateFrom, dateTo, cancellationToken: cancellationToken);
+
+        if (homeResponse?.Content?.Matches == null)
+        {
+            return new HeadToHeadDto { HomeTeam = homeTeam, AwayTeam = awayTeam };
+        }
+
+        bool NamesEqual(string? a, string b) =>
+            !string.IsNullOrEmpty(a) &&
+            string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        var h2hMatches = homeResponse.Content.Matches
+            .Where(m => m.Status == "FINISHED" && m.HomeTeam?.Name != null && m.AwayTeam?.Name != null &&
+                        ((NamesEqual(m.HomeTeam.Name, homeTeam) && NamesEqual(m.AwayTeam.Name, awayTeam)) ||
+                         (NamesEqual(m.HomeTeam.Name, awayTeam) && NamesEqual(m.AwayTeam.Name, homeTeam))))
+            .OrderByDescending(m => m.UtcDate)
+            .Take(10)
+            .ToList();
+
+        int homeWins = 0, awayWins = 0, draws = 0;
+        int uiHomeGoals = 0, uiAwayGoals = 0;
+        var matchResults = new List<MatchResultDto>();
+
+        foreach (var match in h2hMatches)
+        {
+            var isHomePlaying = NamesEqual(match.HomeTeam?.Name, homeTeam);
+            var homeScore = match.Score?.FullTime?.Home ?? 0;
+            var awayScore = match.Score?.FullTime?.Away ?? 0;
+            var uiHomeScore = isHomePlaying ? homeScore : awayScore;
+            var uiAwayScore = isHomePlaying ? awayScore : homeScore;
+
+            string result;
+            if (homeScore > awayScore)
+            {
+                result = isHomePlaying ? "H" : "A";
+                if (isHomePlaying) homeWins++; else awayWins++;
+            }
+            else if (homeScore < awayScore)
+            {
+                result = isHomePlaying ? "A" : "H";
+                if (isHomePlaying) awayWins++; else homeWins++;
+            }
+            else
+            {
+                result = "D";
+                draws++;
+            }
+
+            uiHomeGoals += uiHomeScore;
+            uiAwayGoals += uiAwayScore;
+
+            matchResults.Add(new MatchResultDto
+            {
+                Date = match.UtcDate ?? DateTime.MinValue,
+                Opponent = isHomePlaying ? awayTeam : homeTeam,
+                IsHome = isHomePlaying,
+                GoalsScored = isHomePlaying ? homeScore : awayScore,
+                GoalsConceded = isHomePlaying ? awayScore : homeScore,
+                Result = result
+            });
+        }
+
+        return new HeadToHeadDto
+        {
+            HomeTeam = homeTeam,
+            AwayTeam = awayTeam,
+            HomeTeamWins = homeWins,
+            AwayTeamWins = awayWins,
+            Draws = draws,
+            TotalMatches = h2hMatches.Count,
+            HomeTeamGoals = uiHomeGoals,
+            AwayTeamGoals = uiAwayGoals,
+            Matches = matchResults
+        };
+    }
+
+    private sealed class HistoricalH2hRow
+    {
+        public long Id { get; set; }
+        public string MatchDate { get; set; } = string.Empty;
+        public string HomeTeam { get; set; } = string.Empty;
+        public string AwayTeam { get; set; } = string.Empty;
+        public int? HomeGoals { get; set; }
+        public int? AwayGoals { get; set; }
+        public string? Result { get; set; }
+        public string? LeagueName { get; set; }
     }
 
     private static string ExtractFootballDataTeamId(string externalId)

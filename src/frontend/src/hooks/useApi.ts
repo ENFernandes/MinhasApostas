@@ -84,8 +84,16 @@ export function useAnalyzeMatch() {
   const queryClient = useQueryClient()
   
   return useMutation({
-    mutationFn: async ({ matchId }: { matchId: string; data?: any }): Promise<Analysis> => {
-      const res = await fetch(`${ANALYSIS_BASE}/match/${matchId}`, {
+    mutationFn: async ({
+      matchId,
+      forceRefresh,
+    }: {
+      matchId: string
+      /** Bypass Redis cache for the optional LLM summary (full stats still recomputed). */
+      forceRefresh?: boolean
+    }): Promise<Analysis> => {
+      const q = forceRefresh ? '?force_refresh=true' : ''
+      const res = await fetch(`${ANALYSIS_BASE}/match/${matchId}${q}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -175,6 +183,25 @@ export function usePerformanceStats() {
 }
 
 // Recommendations
+export function useRecordOutcome() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, outcome }: { id: string; outcome: 'WON' | 'LOST' | 'VOID' }) => {
+      const res = await fetch(`${API_BASE}/recommendations/${id}/outcome`, {
+        method: 'PATCH',
+        headers: defaultHeaders,
+        body: JSON.stringify({ outcome }),
+      })
+      if (!res.ok) throw new Error('Failed to record outcome')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['recommendations'] })
+      queryClient.invalidateQueries({ queryKey: ['performance'] })
+    },
+  })
+}
+
 export function useRecommendations(status: string = 'PENDING') {
   return useQuery({
     queryKey: ['recommendations', status],
@@ -185,6 +212,6 @@ export function useRecommendations(status: string = 'PENDING') {
       if (!res.ok) throw new Error('Failed to fetch recommendations')
       return res.json()
     },
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: false, // SSE via useRecommendationsStream handles real-time updates
   })
 }

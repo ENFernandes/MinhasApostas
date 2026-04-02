@@ -29,4 +29,20 @@ public interface IRecommendationRepository
     /// Updates a recommendation.
     /// </summary>
     Task UpdateAsync(RecommendationEntity recommendation, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Regista o resultado de uma aposta (WON, LOST ou VOID).
+    /// </summary>
+    Task<RecommendationEntity?> UpdateOutcomeAsync(
+        Guid id,
+        string outcome,
+        string source = "manual",
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Retorna todas as recomendações com resultado registado para cálculo de performance.
+    /// </summary>
+    Task<IEnumerable<RecommendationEntity>> GetResolvedAsync(
+        int days = 30,
+        CancellationToken cancellationToken = default);
 }

@@ -127,6 +127,8 @@ public class RecommendationDto
     public int Confidence { get; set; }
     public string? Reasoning { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string? BetOutcome { get; set; }       // WON | LOST | VOID | null
+    public DateTime? OutcomeRecordedAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -149,6 +151,33 @@ public class CreateRecommendationRequest
     public string? Reasoning { get; set; }
     public string LlmProvider { get; set; } = string.Empty;
     public string LlmModel { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Performance statistics calculated from AI recommendations with recorded outcomes.
+/// </summary>
+public class AiPerformanceDto
+{
+    public int TotalResolved { get; set; }
+    public int Wins { get; set; }
+    public int Losses { get; set; }
+    public int Voids { get; set; }
+    public double WinRate { get; set; }       // 0–1
+    public double Yield { get; set; }         // profit / total staked
+    public decimal TotalStaked { get; set; }
+    public decimal TotalProfit { get; set; }
+    public int BestStreak { get; set; }
+    public int WorstStreak { get; set; }
+    public decimal SimulatedKellyProfit { get; set; }
+}
+
+/// <summary>
+/// Request to record the outcome of a recommendation.
+/// </summary>
+public class RecordOutcomeRequest
+{
+    /// <summary>Resultado da aposta: WON, LOST ou VOID.</summary>
+    public string Outcome { get; set; } = string.Empty;
 }
 
 /// <summary>

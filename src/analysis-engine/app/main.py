@@ -11,9 +11,10 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.consumers.dead_letter_consumer import DeadLetterConsumer
 from app.consumers.match_consumer import MatchConsumer, handle_football_match, handle_tennis_match
 from app.consumers.odds_consumer import OddsConsumer, handle_odds_update
-from app.routers import analysis, health
+from app.routers import analysis, events, health
 
 # Configure structlog
 structlog.configure(
@@ -67,6 +68,9 @@ async def lifespan(app: FastAPI):
         app.state.odds_consumer.register_handler(handle_odds_update)
         await app.state.odds_consumer.connect()
 
+        app.state.dead_letter_consumer = DeadLetterConsumer(rabbitmq_url)
+        await app.state.dead_letter_consumer.connect()
+
         logger.info("All consumers started")
     except Exception as e:
         logger.warning(
@@ -83,6 +87,8 @@ async def lifespan(app: FastAPI):
         await app.state.match_consumer.disconnect()
     if hasattr(app.state, "odds_consumer"):
         await app.state.odds_consumer.disconnect()
+    if hasattr(app.state, "dead_letter_consumer"):
+        await app.state.dead_letter_consumer.disconnect()
 
     logger.info("All consumers stopped")
 
@@ -121,6 +127,7 @@ async def global_exception_handler(request, exc):
 # Include routers
 app.include_router(health.router)
 app.include_router(analysis.router)
+app.include_router(events.router)
 
 
 @app.get("/")

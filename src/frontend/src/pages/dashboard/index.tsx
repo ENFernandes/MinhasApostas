@@ -223,7 +223,7 @@ export default function DashboardPage() {
                   analysis={recommendationsMap[match.id]}
                   onViewDetails={() => {
                     openAnalysisModal(match.id)
-                    runAnalysis({ matchId: match.id, data: {} })
+                    runAnalysis({ matchId: match.id })
                   }}
                 />
               </motion.div>

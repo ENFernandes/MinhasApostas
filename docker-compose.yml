@@ -3,16 +3,20 @@ name: sports-betting-ai
 services:
 
   # ─────────────────────────────────────────
-  # PostgreSQL 16
+  # TimescaleDB (PostgreSQL 16 + extensão time-series)
+  # Drop-in replacement do postgres:16 — API e dados 100% compatíveis
   # ─────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg16
     container_name: sba-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sportsbetting}
       POSTGRES_USER: ${POSTGRES_USER:-sba_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Dev-safe default: evita services falharem quando .env não tem password.
+      # Se já tens o volume inicializado com outra password, terás de alinhar
+      # o valor no .env ou recriar o volume do postgres.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sportsbetting}
     ports:
       - "5432:5432"
     volumes:
@@ -35,7 +39,7 @@ services:
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-sba_rabbit}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-rabbitmq}
       RABBITMQ_DEFAULT_VHOST: /
     ports:
       - "5672:5672"
@@ -82,15 +86,15 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ENVIRONMENT:-Development}
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-sportsbetting};Username=${POSTGRES_USER:-sba_user};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-sportsbetting};Username=${POSTGRES_USER:-sba_user};Password=${POSTGRES_PASSWORD:-sportsbetting}"
       RabbitMQ__Host: rabbitmq
       RabbitMQ__User: ${RABBITMQ_USER:-sba_rabbit}
-      RabbitMQ__Password: ${RABBITMQ_PASSWORD}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-rabbitmq}
       Redis__Url: "redis://redis:6379"
       ApiKeys__FootballData: ${FOOTBALL_DATA_API_KEY}
       ApiKeys__Tennis: ${TENNIS_API_KEY}
       ApiKeys__Odds: ${ODDS_API_KEY}
-      InternalApiKey: ${INTERNAL_API_KEY}
+      InternalApiKey: ${INTERNAL_API_KEY:-dev-api-key-123}
     ports:
       - "8080:8080"
     depends_on:
@@ -132,18 +136,18 @@ services:
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-sportsbetting}
       POSTGRES_USER: ${POSTGRES_USER:-sba_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sportsbetting}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_USER:-sba_rabbit}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-sba_rabbit}:${RABBITMQ_PASSWORD}@rabbitmq:5672/"
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-rabbitmq}
+      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-sba_rabbit}:${RABBITMQ_PASSWORD:-rabbitmq}@rabbitmq:5672/"
       REDIS_URL: "redis://redis:6379"
       # App
       PORT: 8090
       # C# API
       COLLECTOR_API_URL: http://data-collector:8080
-      COLLECTOR_API_KEY: ${INTERNAL_API_KEY}
+      COLLECTOR_API_KEY: ${INTERNAL_API_KEY:-dev-api-key-123}
     ports:
       - "8090:8090"
     depends_on:
@@ -173,7 +177,7 @@ services:
       args:
         VITE_COLLECTOR_API_URL: http://localhost:8080
         VITE_ANALYSIS_API_URL: http://localhost:8090
-        VITE_API_KEY: ${FRONTEND_API_KEY:-f4da4685b2039b4c4eec35c51a4147341ba977210041a12062e3d2bafd1cee96}
+        VITE_API_KEY: ${INTERNAL_API_KEY:-dev-api-key-123}
     container_name: sba-frontend
     restart: unless-stopped
     ports:

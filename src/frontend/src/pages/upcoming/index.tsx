@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
+import { Link, useSearchParams } from 'react-router-dom'
 import { 
   Calendar, 
+  Sparkles,
   BarChart3, 
   ChevronRight,
   Clock,
@@ -14,12 +16,15 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useMatches } from '@/hooks/useApi'
 import { MatchStatsModal } from '@/components/MatchStatsModal'
+import { MatchAnalysisModal } from '@/components/MatchAnalysisModal'
 import { useAppStore } from '@/stores/appStore'
 import { formatTime, formatDateShort } from '@/lib/utils'
 import type { Match } from '@/types'
 
 export default function UpcomingMatchesPage() {
   const { selectedSport, setSelectedSport } = useAppStore()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const competitionFilter = searchParams.get('competition') ?? ''
   const [fromDate, setFromDate] = useState<string>(() => {
     const today = new Date()
     return today.toISOString().split('T')[0]
@@ -31,6 +36,8 @@ export default function UpcomingMatchesPage() {
   })
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [analysisMatch, setAnalysisMatch] = useState<Match | null>(null)
+  const [isAnalysisOpen, setIsAnalysisOpen] = useState(false)
 
   const fromDateTime = useMemo(() => {
     if (!fromDate) return undefined
@@ -48,15 +55,49 @@ export default function UpcomingMatchesPage() {
 
   const { data: matches, isLoading } = useMatches(fromDateTime, toDateTime)
 
-  const filteredMatches = useMemo(() => {
+  const sportFilteredMatches = useMemo(() => {
     if (!matches) return []
     if (selectedSport === 'all') return matches
     return matches.filter((m) => m.sport === selectedSport)
   }, [matches, selectedSport])
 
+  const availableCompetitions = useMemo(() => {
+    const comps = new Set(
+      sportFilteredMatches
+        .map((m) => (m.competition || '').trim())
+        .filter(Boolean)
+    )
+    return Array.from(comps).sort()
+  }, [sportFilteredMatches])
+
+  const filteredMatches = useMemo(() => {
+    return sportFilteredMatches.filter((m) => {
+      if (!competitionFilter) return true
+      const comp = (m.competition || '').trim()
+      return comp === competitionFilter
+    })
+  }, [sportFilteredMatches, competitionFilter])
+
+  const setCompetitionFilter = (competition: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (!competition) {
+      next.delete('competition')
+    } else {
+      next.set('competition', competition)
+    }
+    setSearchParams(next, { replace: true })
+  }
+
   const handleMatchClick = (match: Match) => {
     setSelectedMatch(match)
     setIsModalOpen(true)
+  }
+
+  const handleAnalyzeClick = (e: React.MouseEvent, match: Match) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setAnalysisMatch(match)
+    setIsAnalysisOpen(true)
   }
 
   const formatMatchTime = (dateString: string) => {
@@ -135,20 +176,55 @@ export default function UpcomingMatchesPage() {
         </Card>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-          <Tabs value={selectedSport} onValueChange={(v) => setSelectedSport(v as any)}>
-            <TabsList className="bg-navy-800/50 border border-navy-700">
-              <TabsTrigger value="all" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white">
-                Todos
-              </TabsTrigger>
-              <TabsTrigger value="football" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white">
-                Futebol
-              </TabsTrigger>
-              <TabsTrigger value="tennis" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white">
-                Ténis
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+        <div className="flex flex-col gap-4 mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="inline-flex rounded-lg border border-navy-700 bg-navy-900/50 p-1">
+              <Link
+                to={{ pathname: '/today', search: searchParams.toString() }}
+                className="px-3 py-1.5 text-sm font-medium rounded-md text-slate-200 hover:text-white hover:bg-navy-800/60 transition-colors"
+              >
+                Hoje
+              </Link>
+              <Link
+                to={{ pathname: '/upcoming', search: searchParams.toString() }}
+                className="px-3 py-1.5 text-sm font-medium rounded-md bg-purple-500 text-white"
+              >
+                Futuro
+              </Link>
+            </div>
+
+            <div className="w-full sm:w-80">
+              <label className="text-slate-400 mb-2 block text-sm">Torneio / Liga</label>
+              <select
+                value={competitionFilter}
+                onChange={(e) => setCompetitionFilter(e.target.value)}
+                className="w-full px-3 py-2 bg-navy-800 border border-navy-700 rounded-md text-slate-200 focus:outline-none focus:border-purple-500"
+              >
+                <option value="">Todos</option>
+                {availableCompetitions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <Tabs value={selectedSport} onValueChange={(v) => setSelectedSport(v as any)}>
+              <TabsList className="bg-navy-800/50 border border-navy-700">
+                <TabsTrigger value="all" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white">
+                  Todos
+                </TabsTrigger>
+                <TabsTrigger value="football" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white">
+                  Futebol
+                </TabsTrigger>
+                <TabsTrigger value="tennis" className="data-[state=active]:bg-purple-500 data-[state=active]:text-white">
+                  Ténis
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </div>
 
         {/* Matches List */}
@@ -210,10 +286,25 @@ export default function UpcomingMatchesPage() {
                             {match.competition}
                           </Badge>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => handleAnalyzeClick(e, match)}
+                          className="text-gold-400 hover:text-gold-300 hover:bg-gold-500/10"
+                        >
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          <span className="hidden sm:inline">Análise</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
                         <Button 
                           variant="ghost" 
                           size="sm" 
                           className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            handleMatchClick(match)
+                          }}
                         >
                           <BarChart3 className="w-4 h-4 mr-2" />
                           <span className="hidden sm:inline">Estatísticas</span>
@@ -247,6 +338,13 @@ export default function UpcomingMatchesPage() {
         match={selectedMatch}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+      />
+
+      {/* Analysis Modal */}
+      <MatchAnalysisModal
+        match={analysisMatch}
+        isOpen={isAnalysisOpen}
+        onClose={() => setIsAnalysisOpen(false)}
       />
     </div>
   )
