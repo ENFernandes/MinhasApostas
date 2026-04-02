@@ -11,6 +11,7 @@ public class TeamEntity
     public string ExternalId { get; set; } = string.Empty;
     public string Sport { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public string? NameNormalized { get; set; }
     public string? ShortName { get; set; }
     public string? Country { get; set; }
     public Guid? CompetitionId { get; set; }

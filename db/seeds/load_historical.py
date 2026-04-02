@@ -2,9 +2,9 @@
 load_historical.py — Carregamento único de dados históricos
 
 Executa uma vez para popular as tabelas:
-  - historical_matches   (football-data.co.uk CSVs)
-  - historical_events    (StatsBomb Open Data)
-  - player_elo_history   (Jeff Sackmann ATP/WTA CSVs)
+  - historical_matches          (football-data.co.uk CSVs)
+  - historical_events           (StatsBomb Open Data)
+  - historical_tennis_matches   (tennis-data.co.uk XLSX — ATP e WTA)
 
 Uso:
   python db/seeds/load_historical.py --sport all
@@ -15,7 +15,7 @@ Uso:
 Tempo estimado: 10-20 minutos dependendo da ligação.
 
 Requisitos:
-  pip install pandas sqlalchemy psycopg2-binary statsbombpy tqdm python-dotenv
+  pip install pandas openpyxl sqlalchemy psycopg2-binary statsbombpy tqdm python-dotenv
   Variáveis de ambiente: POSTGRES_* (lidas de `.env` na raiz do repo)
 """
 
@@ -30,6 +30,35 @@ import structlog
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from tqdm import tqdm
+
+
+# ─────────────────────────────────────────
+# Normalização de nomes de ténis
+# ─────────────────────────────────────────
+
+def _normalize_tennis_name(name: str) -> str:
+    """Converte nome de jogador para forma canónica 'surname initial'.
+
+    "Djokovic N."    → "djokovic n"
+    "Novak Djokovic" → "djokovic n"
+    "De Minaur A."   → "de minaur a"
+    """
+    name = str(name).strip()
+    if not name:
+        return name
+    parts = [p.rstrip(".").strip() for p in name.split()]
+    parts = [p for p in parts if p]
+    if not parts:
+        return name.lower()
+    if len(parts) == 1:
+        return parts[0].lower()
+    singles = [p for p in parts if len(p) == 1]
+    non_singles = [p for p in parts if len(p) > 1]
+    if not non_singles:
+        return name.lower()
+    if singles:
+        return " ".join(non_singles).lower() + " " + singles[0].lower()
+    return non_singles[-1].lower() + " " + non_singles[0][0].lower()
 
 log = structlog.get_logger()
 
@@ -63,7 +92,8 @@ POSTGRES_URL = (
     f"/{os.getenv('POSTGRES_DB', 'sportsbetting')}"
 )
 
-HISTORICAL_DATA_PATH = Path(os.getenv("HISTORICAL_DATA_PATH", "./data/historical"))
+# Anos de ténis a carregar (tennis-data.co.uk)
+TENNIS_YEARS = list(range(2000, 2027))
 
 # Ligas football-data.co.uk por código
 # Formato URL: https://www.football-data.co.uk/mmz4281/{SSSS}/{LEAGUE}.csv
@@ -82,7 +112,7 @@ FOOTBALL_LEAGUES = {
 }
 
 # Épocas a carregar (mais recentes primeiro)
-SEASONS = ["2425", "2324", "2223", "2122", "2021", "1920", "1819", "1718"]
+SEASONS = ["2526", "2425", "2324", "2223", "2122", "2021", "1920", "1819", "1718"]
 
 # Competições StatsBomb com dados open
 STATSBOMB_COMPETITIONS = [
@@ -278,113 +308,150 @@ def load_statsbomb_events(engine: Engine) -> None:
 
 
 # ─────────────────────────────────────────
-# Loader: Jeff Sackmann ATP/WTA
+# Loader: tennis-data.co.uk (ATP e WTA)
 # ─────────────────────────────────────────
 
-def load_tennis_elo(engine: Engine) -> None:
+def load_tennis_historical(engine: Engine) -> None:
     """
-    Carrega resultados históricos ATP e WTA dos CSVs de Jeff Sackmann.
-    Calcula e guarda ELO por superfície na tabela player_elo_history.
+    Carrega resultados históricos ATP e WTA de tennis-data.co.uk (ficheiros .xlsx).
 
-    Requer que os repositórios estejam clonados em HISTORICAL_DATA_PATH:
-      git clone https://github.com/JeffSackmann/tennis_atp data/historical/tennis_atp
-      git clone https://github.com/JeffSackmann/tennis_wta data/historical/tennis_wta
+    Padrão URL:
+      ATP: http://www.tennis-data.co.uk/{YEAR}/{YEAR}.xlsx
+      WTA: http://www.tennis-data.co.uk/{YEAR}w/{YEAR}w.xlsx
+
+    Inclui resultados, rankings, superfície, ronda, odds de bookmakers e marcadores.
+    Popula a tabela historical_tennis_matches.
+
+    Requisito: pip install openpyxl
     """
-    log.info("A iniciar carregamento ELO de ténis (Sackmann CSVs)...")
+    log.info("A iniciar carregamento tennis-data.co.uk (ATP + WTA)...")
+    total_rows = 0
 
-    surfaces = ["Hard", "Clay", "Grass", "Carpet"]
-    K = 32.0
-    DEFAULT_ELO = 1500.0
+    # Mapeamento de colunas XLSX → colunas BD
+    # ATP tem "ATP" + "Series"; WTA tem "WTA" + "Tier" — tratados abaixo
+    COLS_MAP = {
+        "location":  "location",
+        "tournament": "tournament",
+        "date":      "match_date",
+        "court":     "court",
+        "surface":   "surface",
+        "round":     "round",
+        "best_of":   "best_of",        # "Best of" normalizado para "best_of"
+        "winner":    "winner",
+        "loser":     "loser",
+        "wrank":     "winner_rank",
+        "lrank":     "loser_rank",
+        "wpts":      "winner_pts",
+        "lpts":      "loser_pts",
+        "w1": "w1", "l1": "l1",
+        "w2": "w2", "l2": "l2",
+        "w3": "w3", "l3": "l3",
+        "w4": "w4", "l4": "l4",        # apenas ATP
+        "w5": "w5", "l5": "l5",        # apenas ATP
+        "wsets":  "wsets",
+        "lsets":  "lsets",
+        "comment": "comment",
+        "b365w": "b365w", "b365l": "b365l",
+        "psw":   "psw",   "psl":   "psl",
+        "maxw":  "maxw",  "maxl":  "maxl",
+        "avgw":  "avgw",  "avgl":  "avgl",
+        "bfew":  "bfew",  "bfel":  "bfel",
+    }
 
-    # ELO state: {player_name: {surface: elo}}
-    elo_state: dict[str, dict[str, float]] = {}
+    # Colunas numéricas inteiras que podem conter NaN (usar Int64 nullable)
+    INT_COLS = [
+        "best_of", "winner_rank", "loser_rank", "winner_pts", "loser_pts",
+        "w1", "l1", "w2", "l2", "w3", "l3", "w4", "l4", "w5", "l5",
+        "wsets", "lsets",
+    ]
 
-    def get_elo(player: str, surface: str) -> float:
-        return elo_state.get(player, {}).get(surface, DEFAULT_ELO)
+    tours = [
+        ("ATP", ""),   # http://www.tennis-data.co.uk/2024/2024.xlsx
+        ("WTA", "w"),  # http://www.tennis-data.co.uk/2024w/2024w.xlsx
+    ]
 
-    def update_elo(winner: str, loser: str, surface: str) -> None:
-        elo_w = get_elo(winner, surface)
-        elo_l = get_elo(loser, surface)
-        expected = 1 / (1 + 10 ** ((elo_l - elo_w) / 400))
-        delta = K * (1 - expected)
-
-        if winner not in elo_state:
-            elo_state[winner] = {}
-        if loser not in elo_state:
-            elo_state[loser] = {}
-
-        elo_state[winner][surface] = round(elo_w + delta, 1)
-        elo_state[loser][surface] = round(elo_l - delta, 1)
-
-    total_matches = 0
-    records = []
-
-    for tour in ["atp", "wta"]:
-        tour_path = HISTORICAL_DATA_PATH / f"tennis_{tour}"
-        if not tour_path.exists():
-            log.warning(f"Directório não encontrado: {tour_path}. "
-                        f"Executar: git clone https://github.com/JeffSackmann/tennis_{tour} {tour_path}")
-            continue
-
-        # Ficheiros de resultados anuais (ex: atp_matches_2023.csv)
-        csv_files = sorted(tour_path.glob(f"{tour}_matches_[0-9]*.csv"))
-
-        for csv_file in tqdm(csv_files, desc=f"Ficheiros {tour.upper()}"):
+    for year in tqdm(TENNIS_YEARS, desc="Anos"):
+        for tour, suffix in tours:
+            year_suffix = f"{year}{suffix}"
+            url = f"http://www.tennis-data.co.uk/{year_suffix}/{year_suffix}.xlsx"
             try:
-                df = pd.read_csv(csv_file, low_memory=False)
-                df = df.dropna(subset=["winner_name", "loser_name", "surface"])
+                df = pd.read_excel(url, engine="openpyxl")
 
-                for _, row in df.iterrows():
-                    surface = row["surface"] if row["surface"] in surfaces else "Hard"
-                    update_elo(row["winner_name"], row["loser_name"], surface)
-                    total_matches += 1
+                if df.empty:
+                    continue
 
-                    # Guardar snapshot após cada jogo para histórico
-                    records.append({
-                        "player_name": row["winner_name"],
-                        "surface": surface,
-                        "elo": elo_state[row["winner_name"]][surface],
-                        "tour": tour.upper(),
-                        "match_date": row.get("tourney_date"),
-                        "won": True,
-                    })
-                    records.append({
-                        "player_name": row["loser_name"],
-                        "surface": surface,
-                        "elo": elo_state[row["loser_name"]][surface],
-                        "tour": tour.upper(),
-                        "match_date": row.get("tourney_date"),
-                        "won": False,
-                    })
+                # Normalizar nomes de colunas: lowercase, sem espaços
+                df.columns = [str(c).lower().strip().replace(" ", "_") for c in df.columns]
 
-                    # Flush em lotes de 10.000
-                    if len(records) >= 10_000:
-                        pd.DataFrame(records).to_sql(
-                            "player_elo_history",
-                            engine,
-                            if_exists="append",
-                            index=False,
-                            method="multi",
-                            chunksize=500,
-                        )
-                        records = []
+                # ATP tem coluna "atp" com nº sequencial; WTA tem "wta" — ambos → match_num
+                if "atp" in df.columns:
+                    df = df.rename(columns={"atp": "match_num"})
+                elif "wta" in df.columns:
+                    df = df.rename(columns={"wta": "match_num"})
+
+                # ATP tem "series"; WTA tem "tier" — unificar em series_tier
+                if "series" in df.columns:
+                    df = df.rename(columns={"series": "series_tier"})
+                elif "tier" in df.columns:
+                    df = df.rename(columns={"tier": "series_tier"})
+
+                # Aplicar mapeamento de colunas (só as que existem no ficheiro)
+                rename_map = {k: v for k, v in COLS_MAP.items() if k in df.columns}
+                df = df.rename(columns=rename_map)
+
+                # Manter apenas colunas que existem na BD (+ match_num e series_tier)
+                keep = list(rename_map.values()) + [
+                    c for c in ["match_num", "series_tier"] if c in df.columns
+                ]
+                df = df[[c for c in keep if c in df.columns]]
+
+                # Remover linhas sem winner/loser (cabeçalhos repetidos ou linhas vazias)
+                df = df.dropna(subset=["winner", "loser"])
+
+                # Normalizar tipos inteiros (podem ter NaN por linhas incompletas)
+                for col in INT_COLS:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+                # match_date: garantir tipo DATE (o pandas lê como Timestamp)
+                if "match_date" in df.columns:
+                    df["match_date"] = pd.to_datetime(
+                        df["match_date"], errors="coerce"
+                    ).dt.date
+
+                # Metadados
+                df["tour"] = tour
+                df["source_year"] = year
+                df["source"] = "tennis-data.co.uk"
+
+                # Normalização canónica de nomes (V017)
+                if "winner" in df.columns:
+                    df["winner_normalized"] = df["winner"].apply(_normalize_tennis_name)
+                if "loser" in df.columns:
+                    df["loser_normalized"] = df["loser"].apply(_normalize_tennis_name)
+
+                # Deduplicar dentro do ficheiro (proteção extra antes de ir à BD)
+                dedup_cols = ["tour", "tournament", "match_date", "winner", "loser"]
+                existing = [c for c in dedup_cols if c in df.columns]
+                if len(existing) == len(dedup_cols):
+                    df = df.drop_duplicates(subset=dedup_cols, keep="first")
+
+                df.to_sql(
+                    "historical_tennis_matches",
+                    engine,
+                    if_exists="append",
+                    index=False,
+                    method="multi",
+                    chunksize=500,
+                )
+                total_rows += len(df)
+                log.debug("Carregado", tour=tour, year=year, rows=len(df))
 
             except Exception as e:
-                log.warning("Falha ao processar CSV de ténis",
-                            file=str(csv_file), error=str(e))
+                log.warning("Falha ao carregar XLSX de ténis",
+                            tour=tour, year=year, url=url, error=str(e))
 
-    # Flush final
-    if records:
-        pd.DataFrame(records).to_sql(
-            "player_elo_history",
-            engine,
-            if_exists="append",
-            index=False,
-            method="multi",
-            chunksize=500,
-        )
-
-    log.info("ELO ténis concluído", total_matches=total_matches)
+    log.info("tennis-data.co.uk concluído", total_rows=total_rows)
 
 
 # ─────────────────────────────────────────
@@ -428,7 +495,7 @@ def main() -> None:
         load_statsbomb_events(engine)
 
     if args.sport in ("all", "tennis"):
-        load_tennis_elo(engine)
+        load_tennis_historical(engine)
 
     log.info("Carregamento histórico completo!")
 

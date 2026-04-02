@@ -2,7 +2,7 @@
 
 > Este ficheiro é lido pelo OpenCode em cada sessão. Define o stack, convenções,
 > estrutura do projeto e regras que todos os agentes devem seguir sem excepção.
-Ver o `SUMMARY.md` para perceber o estado do projeto.
+Ver o `SUMMARY-CONTEXTO.md` para perceber o estado do projeto.
 ---
 
 ## Visão geral do projeto

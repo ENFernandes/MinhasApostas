@@ -4,6 +4,7 @@ using SportsBetting.DataCollector.Core.Entities;
 using SportsBetting.DataCollector.Core.Interfaces;
 using SportsBetting.DataCollector.Infrastructure.Clients;
 using SportsBetting.DataCollector.Infrastructure.Data;
+using SportsBetting.DataCollector.Infrastructure.Services;
 using TeamEntity = SportsBetting.DataCollector.Core.Entities.TeamEntity;
 using CompetitionEntity = SportsBetting.DataCollector.Core.Entities.CompetitionEntity;
 
@@ -218,6 +219,7 @@ public class TennisCollectorJob : IJobService
                 ExternalId = externalId,
                 Sport = "tennis",
                 Name = playerName,
+                NameNormalized = TennisNameNormalizer.Normalize(playerName),
                 ShortName = null,
                 Country = null,
             };

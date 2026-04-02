@@ -45,6 +45,12 @@ public interface IFootballDataClient
     /// </summary>
     [Get("/competitions")]
     Task<ApiResponse<CompetitionsResponse>> GetCompetitionsAsync();
+
+    /// <summary>
+    /// Gets the standings (tabela classificativa) for a competition.
+    /// </summary>
+    [Get("/competitions/{competitionId}/standings")]
+    Task<ApiResponse<StandingsResponse>> GetStandingsAsync(string competitionId);
 }
 
 // Response models
@@ -120,4 +126,43 @@ public class AreaDto
 {
     public string? Name { get; set; }
     public string? Code { get; set; }
+}
+
+// ── Standings models ──────────────────────────────────────────────────────────
+
+public class StandingsResponse
+{
+    public CompetitionDto? Competition { get; set; }
+    public SeasonDto? Season { get; set; }
+    public List<StandingsTableDto> Standings { get; set; } = new();
+}
+
+public class SeasonDto
+{
+    public int? Id { get; set; }
+    public string? StartDate { get; set; }
+    public string? EndDate { get; set; }
+    public string? CurrentMatchday { get; set; }
+}
+
+public class StandingsTableDto
+{
+    public string? Stage { get; set; }
+    public string? Type { get; set; }     // TOTAL / HOME / AWAY
+    public List<StandingEntryDto> Table { get; set; } = new();
+}
+
+public class StandingEntryDto
+{
+    public int Position { get; set; }
+    public TeamDto? Team { get; set; }
+    public int PlayedGames { get; set; }
+    public string? Form { get; set; }
+    public int Won { get; set; }
+    public int Draw { get; set; }
+    public int Lost { get; set; }
+    public int Points { get; set; }
+    public int GoalsFor { get; set; }
+    public int GoalsAgainst { get; set; }
+    public int GoalDifference { get; set; }
 }

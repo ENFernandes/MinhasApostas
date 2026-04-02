@@ -89,6 +89,12 @@ Ver `docs/CONTEXT.md`.
 - **Seed football:** `load_historical.py` normaliza **datas para `YYYY-MM-DD`**, faz `strip` aos nomes e **`drop_duplicates`** no lote antes do `to_sql` (alinha com o índice único e reduz re-inserções).
 - **Frontend:** `HeadToHeadStats` usa **“1 jogo”** vs **“N jogos”** em português.
 
+## Últimas alterações relevantes (2026-04-02 — API ténis / `historical_tennis_matches`)
+
+- **Data Collector:** `HistoricalTennisMatchEntity` e `PlayersController` alinhados ao schema real da tabela `historical_tennis_matches` (V015, fonte tennis-data.co.uk: `winner`/`loser`/`match_date`, sets `w1`–`l5`, etc.). A entidade anterior assumia colunas estilo Sackmann (`winner_name`, `tourney_date`, stats de serviço) **inexistentes** na BD → o EF gerava SQL inválido e `GET /api/players/tennis/stats` respondia **500**. `GET /api/players/tennis/h2h`: contagens de vitórias deixam de usar `EF.Functions.ILike` sobre listas já materializadas (não suportado fora de `IQueryable`). `ServeStats` por superfície fica vazio (esta fonte não traz aces/`svpt` por jogo).
+- **LatestPlayerEloEntity:** `last_match_date` mapeado como `string?` (TEXT na view), coerente com `player_elo_history`.
+- **Analysis Engine (Python):** `tennis_context.py` — queries a `historical_tennis_matches` actualizadas para `winner`/`loser`/`match_date`/`tournament`; `get_tennis_serve_stats` devolve vazio (sem colunas de serviço na fonte actual).
+
 ## Docker vs desenvolvimento local (frontend)
 
 O serviço `frontend` no Docker **não** monta o código-fonte: a imagem corre `npm run build` e o Nginx serve o `dist` **da altura do último `docker compose build frontend`**.

@@ -5,6 +5,7 @@ using SportsBetting.DataCollector.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
+using SportsBetting.DataCollector.Infrastructure.Services;
 
 namespace SportsBetting.DataCollector.Infrastructure.Services;
 
@@ -59,18 +60,23 @@ public class TeamStatsService : ITeamStatsService, IScopedService
 
     private async Task<TeamFormDto> GetTennisTeamFormFromDbAsync(string playerName, CancellationToken cancellationToken)
     {
+        var playerNorm = TennisNameNormalizer.Normalize(playerName);
+        var playerFuzzy = $"%{TennisNameNormalizer.SurnameToken(playerNorm)}%";
+
         try
         {
             var matches = await _context.Matches
                 .Where(m => m.Sport == "tennis" && m.Status == "FINISHED" &&
                             m.HomeTeam != null && m.AwayTeam != null &&
-                            (m.HomeTeam.Name == playerName || m.AwayTeam.Name == playerName))
+                            ((m.HomeTeam.NameNormalized == playerNorm || EF.Functions.ILike(m.HomeTeam.Name, playerFuzzy)) ||
+                             (m.AwayTeam.NameNormalized == playerNorm || EF.Functions.ILike(m.AwayTeam.Name, playerFuzzy))))
                 .OrderByDescending(m => m.CommenceTime)
                 .Take(10)
                 .Select(m => new
                 {
                     m.CommenceTime,
                     Home = m.HomeTeam!.Name,
+                    HomeNorm = m.HomeTeam!.NameNormalized,
                     Away = m.AwayTeam!.Name,
                     m.HomeScore,
                     m.AwayScore
@@ -91,7 +97,8 @@ public class TeamStatsService : ITeamStatsService, IScopedService
 
             foreach (var m in matches)
             {
-                var isHome = string.Equals(m.Home, playerName, StringComparison.Ordinal);
+                var isHome = m.HomeNorm == playerNorm ||
+                             m.Home.Contains(TennisNameNormalizer.SurnameToken(playerNorm), StringComparison.OrdinalIgnoreCase);
                 var opponent = isHome ? m.Away : m.Home;
                 var myScore = isHome ? (m.HomeScore ?? 0) : (m.AwayScore ?? 0);
                 var oppScore = isHome ? (m.AwayScore ?? 0) : (m.HomeScore ?? 0);
@@ -234,19 +241,27 @@ public class TeamStatsService : ITeamStatsService, IScopedService
 
     private async Task<HeadToHeadDto> GetTennisHeadToHeadFromDbAsync(string playerA, string playerB, CancellationToken cancellationToken)
     {
+        var normA = TennisNameNormalizer.Normalize(playerA);
+        var normB = TennisNameNormalizer.Normalize(playerB);
+        var fuzzyA = $"%{TennisNameNormalizer.SurnameToken(normA)}%";
+        var fuzzyB = $"%{TennisNameNormalizer.SurnameToken(normB)}%";
+
         try
         {
             var matches = await _context.Matches
                 .Where(m => m.Sport == "tennis" && m.Status == "FINISHED" &&
                             m.HomeTeam != null && m.AwayTeam != null &&
-                            ((m.HomeTeam.Name == playerA && m.AwayTeam.Name == playerB) ||
-                             (m.HomeTeam.Name == playerB && m.AwayTeam.Name == playerA)))
+                            (((m.HomeTeam.NameNormalized == normA || EF.Functions.ILike(m.HomeTeam.Name, fuzzyA)) &&
+                              (m.AwayTeam.NameNormalized == normB || EF.Functions.ILike(m.AwayTeam.Name, fuzzyB))) ||
+                             ((m.HomeTeam.NameNormalized == normB || EF.Functions.ILike(m.HomeTeam.Name, fuzzyB)) &&
+                              (m.AwayTeam.NameNormalized == normA || EF.Functions.ILike(m.AwayTeam.Name, fuzzyA)))))
                 .OrderByDescending(m => m.CommenceTime)
                 .Take(10)
                 .Select(m => new
                 {
                     m.CommenceTime,
                     Home = m.HomeTeam!.Name,
+                    HomeNorm = m.HomeTeam!.NameNormalized,
                     Away = m.AwayTeam!.Name,
                     m.HomeScore,
                     m.AwayScore
@@ -262,7 +277,8 @@ public class TeamStatsService : ITeamStatsService, IScopedService
 
             foreach (var m in matches)
             {
-                var aIsHome = string.Equals(m.Home, playerA, StringComparison.Ordinal);
+                var aIsHome = m.HomeNorm == normA ||
+                             m.Home.Contains(TennisNameNormalizer.SurnameToken(normA), StringComparison.OrdinalIgnoreCase);
                 var homeScore = m.HomeScore ?? 0;
                 var awayScore = m.AwayScore ?? 0;
 

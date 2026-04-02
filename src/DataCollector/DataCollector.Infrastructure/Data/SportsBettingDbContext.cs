@@ -24,6 +24,9 @@ public class SportsBettingDbContext : DbContext
     public DbSet<MatchLineupEntity> MatchLineups => Set<MatchLineupEntity>();
     public DbSet<PlayerEloHistoryEntity> PlayerEloHistory => Set<PlayerEloHistoryEntity>();
     public DbSet<LatestPlayerEloEntity> LatestPlayerElo => Set<LatestPlayerEloEntity>();
+    public DbSet<HistoricalTennisMatchEntity> HistoricalTennisMatches => Set<HistoricalTennisMatchEntity>();
+    public DbSet<FootballStandingEntity> FootballStandings => Set<FootballStandingEntity>();
+    public DbSet<TennisRankingEntity> TennisRankings => Set<TennisRankingEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,6 +53,7 @@ public class SportsBettingDbContext : DbContext
             entity.HasIndex(e => new { e.ExternalId, e.Sport }).IsUnique();
             entity.Property(e => e.Sport).HasMaxLength(50).IsRequired();
             entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.NameNormalized).HasColumnName("name_normalized");
             entity.Property(e => e.ShortName).HasMaxLength(50);
             entity.Property(e => e.Country).HasMaxLength(100);
         });
@@ -172,6 +176,47 @@ public class SportsBettingDbContext : DbContext
             entity.HasNoKey();
             entity.Property(e => e.PlayerName).HasColumnName("player_name");
             entity.Property(e => e.LastMatchDate).HasColumnName("last_match_date");
+        });
+
+        // football_standings (V016 migration)
+        modelBuilder.Entity<FootballStandingEntity>(entity =>
+        {
+            entity.ToTable("football_standings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CompetitionCode).HasColumnName("competition_code");
+            entity.Property(e => e.CompetitionName).HasColumnName("competition_name");
+            entity.Property(e => e.TeamExternalId).HasColumnName("team_external_id");
+            entity.Property(e => e.GoalsFor).HasColumnName("goals_for");
+            entity.Property(e => e.GoalsAgainst).HasColumnName("goals_against");
+            entity.Property(e => e.GoalDifference).HasColumnName("goal_difference");
+            entity.Property(e => e.FetchedAt).HasColumnName("fetched_at");
+        });
+
+        // tennis_rankings (V016 migration)
+        modelBuilder.Entity<TennisRankingEntity>(entity =>
+        {
+            entity.ToTable("tennis_rankings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.PlayerName).HasColumnName("player_name");
+            entity.Property(e => e.PlayerKey).HasColumnName("player_key");
+            entity.Property(e => e.FetchedAt).HasColumnName("fetched_at");
+        });
+
+        // historical_tennis_matches (V015 — tennis-data.co.uk)
+        modelBuilder.Entity<HistoricalTennisMatchEntity>(entity =>
+        {
+            entity.ToTable("historical_tennis_matches");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.MatchDate).HasColumnName("match_date");
+            entity.Property(e => e.SeriesTier).HasColumnName("series_tier");
+            entity.Property(e => e.WinnerNormalized).HasColumnName("winner_normalized");
+            entity.Property(e => e.LoserNormalized).HasColumnName("loser_normalized");
+            entity.Property(e => e.WinnerPts).HasColumnName("winner_pts");
+            entity.Property(e => e.LoserPts).HasColumnName("loser_pts");
+            entity.Property(e => e.Wsets).HasColumnName("wsets");
+            entity.Property(e => e.Lsets).HasColumnName("lsets");
+            entity.Property(e => e.SourceYear).HasColumnName("source_year");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
         });
     }
 }

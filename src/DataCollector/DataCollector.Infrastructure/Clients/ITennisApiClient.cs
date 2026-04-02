@@ -29,6 +29,16 @@ public interface ITennisApiClient
         [Query] string date_start,
         [Query] string date_stop,
         [Query] string? timezone = null);
+
+    /// <summary>
+    /// Gets current ATP or WTA rankings.
+    /// tour: "atp" or "wta"
+    /// </summary>
+    [Get("/")]
+    Task<ApiResponse<TennisRankingsResponse>> GetRankingsAsync(
+        [Query] string method = "get_rankings",
+        [Query] string tour = "atp",
+        [Query] string APIkey = "");
 }
 
 public class TennisApiResponse
@@ -62,6 +72,33 @@ public class MatchInfoDto
     public string? HomeSets { get; set; }
     public string? AwaySets { get; set; }
     public string? Status { get; set; }
+}
+
+public class TennisRankingsResponse
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("result")]
+    public List<TennisRankingEntryDto>? Result { get; set; }
+}
+
+public class TennisRankingEntryDto
+{
+    [JsonPropertyName("rank")]
+    public int Rank { get; set; }
+
+    [JsonPropertyName("player_key")]
+    public long? PlayerKey { get; set; }
+
+    [JsonPropertyName("player_name")]
+    public string? PlayerName { get; set; }
+
+    [JsonPropertyName("player_country_key")]
+    public string? PlayerCountryKey { get; set; }
+
+    [JsonPropertyName("ranking_points")]
+    public int? RankingPoints { get; set; }
 }
 
 public class FixtureDto
