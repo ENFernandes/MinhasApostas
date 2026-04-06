@@ -138,9 +138,12 @@ public class SportsBettingDbContext : DbContext
             entity.Property(e => e.Outcome).HasMaxLength(50).IsRequired();
             entity.Property(e => e.Bookmaker).HasMaxLength(100);
             entity.Property(e => e.Result).HasMaxLength(20);
+            entity.Property(e => e.ManualEventLabel).HasMaxLength(500);
+            entity.Property(e => e.ManualSport).HasMaxLength(32);
             entity.HasOne(e => e.Match)
                 .WithMany()
                 .HasForeignKey(e => e.MatchId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Recommendation)
                 .WithOne(r => r.Bet)

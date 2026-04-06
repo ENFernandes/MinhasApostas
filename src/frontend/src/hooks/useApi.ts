@@ -14,7 +14,13 @@ const defaultHeaders = {
 }
 
 // Matches
-export function useMatches(from?: Date, to?: Date, sport?: string, onlyWithOdds?: boolean) {
+export function useMatches(
+  from?: Date,
+  to?: Date,
+  sport?: string,
+  onlyWithOdds?: boolean,
+  enabled: boolean = true
+) {
   const params = new URLSearchParams()
   const now = new Date()
   const defaultFrom = now // momento atual, não meia-noite
@@ -30,7 +36,7 @@ export function useMatches(from?: Date, to?: Date, sport?: string, onlyWithOdds?
   if (onlyWithOdds) params.append('onlyWithOdds', 'true')
   
   return useQuery({
-    queryKey: ['matches', { from, to, sport, onlyWithOdds }],
+    queryKey: ['matches', fromDate.toISOString(), toDate.toISOString(), sport ?? '', onlyWithOdds ?? false],
     queryFn: async (): Promise<Match[]> => {
       const res = await fetch(`${API_BASE}/matches/upcoming?${params}`, {
         headers: defaultHeaders,
@@ -46,7 +52,8 @@ export function useMatches(from?: Date, to?: Date, sport?: string, onlyWithOdds?
         competition: m.competitionName || m.competition
       }))
     },
-    refetchInterval: 60000, // Refetch every minute
+    enabled,
+    refetchInterval: enabled ? 60000 : false,
   })
 }
 
@@ -121,17 +128,57 @@ export function useLatestAnalysis(matchId: string) {
 }
 
 // Bets
+export interface RegisterBetPayload {
+  recommendationId: string
+  /** Quando definido, aposta ligada a um jogo na BD. */
+  matchId?: string
+  /** Texto livre quando não há `matchId`. */
+  manualEventLabel?: string
+  /** football | tennis | manual */
+  manualSport?: string
+  market: string
+  betSelection?: string
+  bookmaker: string
+  stakeActual: number
+  oddActual: number
+  outcome: string
+  profitLoss: number
+}
+
 export function useRegisterBet() {
   const queryClient = useQueryClient()
   
   return useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: RegisterBetPayload) => {
       const res = await fetch(`${API_BASE}/bets`, {
         method: 'POST',
         headers: defaultHeaders,
         body: JSON.stringify(data),
       })
       if (!res.ok) throw new Error('Failed to register bet')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bets'] })
+      queryClient.invalidateQueries({ queryKey: ['performance'] })
+    },
+  })
+}
+
+export function useSettleBet() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ betId, outcome }: { betId: string; outcome: 'WIN' | 'LOSS' | 'VOID' }) => {
+      const res = await fetch(`${API_BASE}/bets/${betId}`, {
+        method: 'PATCH',
+        headers: defaultHeaders,
+        body: JSON.stringify({ outcome }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        throw new Error(text || 'Failed to settle bet')
+      }
       return res.json()
     },
     onSuccess: () => {

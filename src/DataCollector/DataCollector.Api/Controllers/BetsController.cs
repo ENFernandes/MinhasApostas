@@ -34,45 +34,7 @@ public class BetsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var bets = await _betRepository.GetSettledBetsAsync(cancellationToken);
-        
-        var dtos = bets.Select(b => new BetResultDto
-        {
-            Id = b.Id,
-            MatchId = b.MatchId,
-            Match = b.Match != null ? new MatchDto
-            {
-                Id = b.Match.Id,
-                ExternalId = b.Match.ExternalId,
-                Sport = b.Match.Sport,
-                HomeTeam = b.Match.HomeTeam?.Name ?? string.Empty,
-                AwayTeam = b.Match.AwayTeam?.Name ?? string.Empty,
-                CommenceTime = b.Match.CommenceTime,
-                Status = b.Match.Status,
-                HomeScore = b.Match.HomeScore,
-                AwayScore = b.Match.AwayScore,
-                Minute = b.Match.Minute
-            } : null!,
-            Recommendation = new RecommendedMarketDto
-            {
-                Market = b.Market,
-                Outcome = b.Outcome,
-                Bookmaker = b.Bookmaker ?? string.Empty,
-                Odd = b.OddPlaced,
-                ImpliedProbability = 0, // Would need to calculate
-                ModelProbability = 0,   // Would need to get from recommendation
-                Value = 0,              // Would need to calculate
-                KellyFraction = 0,      // Would need to get from recommendation
-                StakeEuros = b.StakeEuros,
-                Confidence = b.Recommendation?.Confidence ?? 0
-            },
-            StakeActual = b.StakeEuros,
-            OddActual = b.OddPlaced,
-            Outcome = b.Result ?? "PENDING",
-            ProfitLoss = b.ProfitLoss ?? 0,
-            SettledAt = b.SettledAt ?? b.PlacedAt
-        });
-        
-        return Ok(dtos);
+        return Ok(bets.Select(ToBetResultDto));
     }
 
     /// <summary>
@@ -83,45 +45,7 @@ public class BetsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var bets = await _betRepository.GetPendingBetsAsync(cancellationToken);
-
-        var dtos = bets.Select(b => new BetResultDto
-        {
-            Id = b.Id,
-            MatchId = b.MatchId,
-            Match = b.Match != null ? new MatchDto
-            {
-                Id = b.Match.Id,
-                ExternalId = b.Match.ExternalId,
-                Sport = b.Match.Sport,
-                HomeTeam = b.Match.HomeTeam?.Name ?? string.Empty,
-                AwayTeam = b.Match.AwayTeam?.Name ?? string.Empty,
-                CommenceTime = b.Match.CommenceTime,
-                Status = b.Match.Status,
-                HomeScore = b.Match.HomeScore,
-                AwayScore = b.Match.AwayScore,
-                Minute = b.Match.Minute
-            } : null!,
-            Recommendation = new RecommendedMarketDto
-            {
-                Market = b.Market,
-                Outcome = b.Outcome,
-                Bookmaker = b.Bookmaker ?? string.Empty,
-                Odd = b.OddPlaced,
-                ImpliedProbability = 0,
-                ModelProbability = 0,
-                Value = 0,
-                KellyFraction = 0,
-                StakeEuros = b.StakeEuros,
-                Confidence = b.Recommendation?.Confidence ?? 0
-            },
-            StakeActual = b.StakeEuros,
-            OddActual = b.OddPlaced,
-            Outcome = b.Result ?? "PENDING",
-            ProfitLoss = b.ProfitLoss ?? 0,
-            SettledAt = b.SettledAt ?? b.PlacedAt
-        });
-
-        return Ok(dtos);
+        return Ok(bets.Select(ToBetResultDto));
     }
 
     /// <summary>
@@ -137,7 +61,6 @@ public class BetsController : ControllerBase
             request.RecommendationId,
             request.Outcome);
 
-        // Try to get the recommendation
         RecommendationEntity? recommendation = null;
         if (request.RecommendationId != Guid.Empty)
         {
@@ -146,12 +69,14 @@ public class BetsController : ControllerBase
                 cancellationToken);
         }
 
-        if (recommendation == null && request.MatchId == null)
+        var hasMatchId = request.MatchId is { } mid && mid != Guid.Empty;
+        var hasManual = !string.IsNullOrWhiteSpace(request.ManualEventLabel);
+
+        if (recommendation == null && !hasMatchId && !hasManual)
         {
-            return BadRequest(new { Message = "Either RecommendationId or MatchId is required" });
+            return BadRequest(new { Message = "Either MatchId or ManualEventLabel is required" });
         }
 
-        // Check if bet already exists for this recommendation
         if (recommendation != null)
         {
             var existingBet = await _betRepository.GetByRecommendationIdAsync(
@@ -188,21 +113,191 @@ public class BetsController : ControllerBase
         }
         else
         {
-            // Direct bet creation without a recommendation
-            var bet = new BetEntity
+            var selection = !string.IsNullOrWhiteSpace(request.BetSelection)
+                ? request.BetSelection.Trim()
+                : (!IsBetResultToken(request.Outcome) ? request.Outcome.Trim() : null);
+            if (string.IsNullOrWhiteSpace(selection))
             {
-                MatchId = request.MatchId!.Value,
-                Market = request.Market ?? "N/A",
-                Outcome = request.Outcome == "PENDING" ? (request.Market ?? "N/A") : request.Outcome,
-                Bookmaker = request.Bookmaker,
-                OddPlaced = request.OddActual,
-                StakeEuros = request.StakeActual,
-                Result = "PENDING",
-                ProfitLoss = 0,
-            };
-            await _betRepository.CreateAsync(bet, cancellationToken);
+                selection = request.Market ?? "N/A";
+            }
+
+            var market = string.IsNullOrWhiteSpace(request.Market) ? "N/A" : request.Market.Trim();
+
+            if (hasMatchId)
+            {
+                var bet = new BetEntity
+                {
+                    MatchId = request.MatchId,
+                    ManualEventLabel = null,
+                    ManualSport = null,
+                    Market = market,
+                    Outcome = selection,
+                    Bookmaker = request.Bookmaker,
+                    OddPlaced = request.OddActual,
+                    StakeEuros = request.StakeActual,
+                    Result = "PENDING",
+                    ProfitLoss = 0,
+                };
+                await _betRepository.CreateAsync(bet, cancellationToken);
+            }
+            else
+            {
+                var bet = new BetEntity
+                {
+                    MatchId = null,
+                    ManualEventLabel = request.ManualEventLabel!.Trim(),
+                    ManualSport = NormalizeManualSport(request.ManualSport),
+                    Market = market,
+                    Outcome = selection,
+                    Bookmaker = request.Bookmaker,
+                    OddPlaced = request.OddActual,
+                    StakeEuros = request.StakeActual,
+                    Result = "PENDING",
+                    ProfitLoss = 0,
+                };
+                await _betRepository.CreateAsync(bet, cancellationToken);
+            }
         }
 
         return Ok(new { Message = "Bet registered successfully" });
+    }
+
+    /// <summary>
+    /// Settles a pending bet (WIN, LOSS, VOID) and computes P&amp;L from stake and placed odd.
+    /// </summary>
+    [HttpPatch("{id:guid}")]
+    public async Task<ActionResult> Settle(
+        Guid id,
+        [FromBody] SettleBetRequest request,
+        CancellationToken cancellationToken)
+    {
+        var outcome = (request.Outcome ?? string.Empty).Trim().ToUpperInvariant();
+        if (outcome is not ("WIN" or "LOSS" or "VOID"))
+        {
+            return BadRequest(new { Message = "Outcome must be WIN, LOSS, or VOID" });
+        }
+
+        var bet = await _betRepository.GetByIdAsync(id, cancellationToken);
+        if (bet == null)
+        {
+            return NotFound(new { Message = "Bet not found" });
+        }
+
+        if (bet.Result != "PENDING")
+        {
+            return BadRequest(new { Message = "Bet is already settled" });
+        }
+
+        var profitLoss = outcome switch
+        {
+            "WIN" => bet.StakeEuros * (bet.OddPlaced - 1m),
+            "LOSS" => -bet.StakeEuros,
+            "VOID" => 0m,
+            _ => 0m
+        };
+
+        bet.Result = outcome;
+        bet.ProfitLoss = profitLoss;
+        bet.SettledAt = DateTime.UtcNow;
+        await _betRepository.UpdateAsync(bet, cancellationToken);
+
+        _logger.LogInformation("Settled bet {BetId} as {Outcome}, P/L {ProfitLoss}", id, outcome, profitLoss);
+        return Ok(new { Message = "Bet settled", Outcome = outcome, ProfitLoss = profitLoss });
+    }
+
+    private static BetResultDto ToBetResultDto(BetEntity b)
+    {
+        var isManual = b.Match is null;
+        MatchDto matchDto;
+        if (b.Match != null)
+        {
+            matchDto = new MatchDto
+            {
+                Id = b.Match.Id,
+                ExternalId = b.Match.ExternalId,
+                Sport = b.Match.Sport,
+                CompetitionName = b.Match.Competition?.Name,
+                HomeTeam = b.Match.HomeTeam?.Name ?? string.Empty,
+                AwayTeam = b.Match.AwayTeam?.Name ?? string.Empty,
+                CommenceTime = b.Match.CommenceTime,
+                Status = b.Match.Status,
+                HomeScore = b.Match.HomeScore,
+                AwayScore = b.Match.AwayScore,
+                Minute = b.Match.Minute,
+            };
+        }
+        else
+        {
+            matchDto = new MatchDto
+            {
+                Id = Guid.Empty,
+                ExternalId = "manual",
+                Sport = b.ManualSport ?? "manual",
+                CompetitionName = null,
+                HomeTeam = b.ManualEventLabel ?? "Evento manual",
+                AwayTeam = string.Empty,
+                CommenceTime = b.PlacedAt,
+                Status = "MANUAL",
+                HomeScore = null,
+                AwayScore = null,
+                Minute = null,
+            };
+        }
+
+        return new BetResultDto
+        {
+            Id = b.Id,
+            MatchId = b.MatchId,
+            IsManualEvent = isManual,
+            Match = matchDto,
+            Recommendation = new RecommendedMarketDto
+            {
+                Market = b.Market,
+                Outcome = b.Outcome,
+                Bookmaker = b.Bookmaker ?? string.Empty,
+                Odd = b.OddPlaced,
+                ImpliedProbability = 0,
+                ModelProbability = 0,
+                Value = 0,
+                KellyFraction = 0,
+                StakeEuros = b.StakeEuros,
+                Confidence = b.Recommendation?.Confidence ?? 0,
+            },
+            StakeActual = b.StakeEuros,
+            OddActual = b.OddPlaced,
+            Outcome = b.Result ?? "PENDING",
+            ProfitLoss = b.ProfitLoss ?? 0,
+            SettledAt = b.SettledAt ?? b.PlacedAt,
+        };
+    }
+
+    private static string NormalizeManualSport(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "manual";
+        }
+
+        var v = value.Trim().ToLowerInvariant();
+        return v switch
+        {
+            "football" or "futebol" => "football",
+            "tennis" or "ténis" or "tenis" => "tennis",
+            _ => "manual",
+        };
+    }
+
+    private static bool IsBetResultToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var v = value.Trim();
+        return v.Equals("WIN", StringComparison.OrdinalIgnoreCase)
+               || v.Equals("LOSS", StringComparison.OrdinalIgnoreCase)
+               || v.Equals("VOID", StringComparison.OrdinalIgnoreCase)
+               || v.Equals("PENDING", StringComparison.OrdinalIgnoreCase);
     }
 }

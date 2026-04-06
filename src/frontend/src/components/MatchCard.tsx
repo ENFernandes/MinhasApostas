@@ -13,9 +13,11 @@ interface MatchCardProps {
   match: Match
   analysis?: Analysis
   onViewDetails?: () => void
+  /** Quando true, mostra aposta manual se não houver recomendação da IA. */
+  allowManualBet?: boolean
 }
 
-export function MatchCard({ match, analysis, onViewDetails }: MatchCardProps) {
+export function MatchCard({ match, analysis, onViewDetails, allowManualBet = false }: MatchCardProps) {
   const openStakeModal = useAppStore((state) => state.openStakeModal)
   const [isHovered, setIsHovered] = useState(false)
 
@@ -130,13 +132,19 @@ export function MatchCard({ match, analysis, onViewDetails }: MatchCardProps) {
               <TrendingUp className="w-4 h-4 mr-2" />
               Análise
             </Button>
-            {hasRecommendation && (
+            {(hasRecommendation || allowManualBet) && (
               <Button
                 size="sm"
                 className="flex-1 bg-gradient-to-r from-gold-500 to-gold-400 text-navy-950 font-semibold hover:from-gold-400 hover:to-gold-300"
-                onClick={() => openStakeModal(match.id, match, analysis)}
+                onClick={() =>
+                  openStakeModal(
+                    match.id,
+                    match,
+                    hasRecommendation ? analysis : null
+                  )
+                }
               >
-                Apostar
+                {hasRecommendation ? 'Apostar' : 'Aposta manual'}
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
             )}

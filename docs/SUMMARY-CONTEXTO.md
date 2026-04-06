@@ -95,6 +95,17 @@ Ver `docs/CONTEXT.md`.
 - **LatestPlayerEloEntity:** `last_match_date` mapeado como `string?` (TEXT na view), coerente com `player_elo_history`.
 - **Analysis Engine (Python):** `tennis_context.py` — queries a `historical_tennis_matches` actualizadas para `winner`/`loser`/`match_date`/`tournament`; `get_tennis_serve_stats` devolve vazio (sem colunas de serviço na fonte actual).
 
+## Últimas alterações relevantes (2026-04-06 — apostas manuais e liquidação)
+
+- **Dashboard:** botão **“Escolher desporto e jogo”** abre o `ManualBetModal` (global em `App.tsx`): escolha **Futebol / Ténis / Todos**, lista de jogos com odds nos **próximos 14 dias**, depois mercado/seleção/odd/stake. Botão **“Lista de hoje (manual)”** mantém a grelha só com jogos de hoje + cartão “Aposta manual”.
+- **useMatches:** quinto parâmetro opcional `enabled` (default `true`) + `queryKey` estável em ISO; usado para não ir à API com o picker fechado.
+- **`StakeModal`:** suporta payload `betSelection` + `outcome: PENDING`; normaliza `Analysis` vs `recommendedMarket` para odds/mercado correctos quando a IA sugere.
+- **Histórico (`/history`):** no separador **Pendentes**, botões **Ganhou / Perdeu / Anulada** chamam `PATCH /api/bets/{id}`; P&amp;L calculado no servidor (WIN: stake×(odd−1); LOSS: −stake; VOID: 0).
+- **Data Collector:** `RegisterBetRequest.BetSelection`; criação directa de aposta sem recomendação; novo **`PATCH /api/bets/{id}`** (`SettleBetRequest`).
+- **Docker:** o Nginx do contentor `frontend` já faz `proxy_pass` de todo o tráfego para `/api/` — **PATCH incluído**, sem alteração de config. Após mudanças de UI/API: `docker compose build frontend data-collector` (ou `up -d --build`).
+- **Apostas sem jogo na BD:** migração `V018` — `match_id` opcional; `manual_event_label` + `manual_sport`. **`ManualBetModal`:** campo de evento é **input de texto livre** (mín. 3 caracteres) com sugestões opcionais da lista; envio com `matchId` **ou** `manualEventLabel`/`manualSport`.
+- **Frontend:** `RegisterBetPayload` com `matchId?`, `manualEventLabel?`, `manualSport?`; `BetResult.matchId` pode ser `null` e `isManualEvent`; tipo `Match.sport` inclui `manual`. **Histórico:** `formatBetEventLabel` evita “X vs ” vazio para eventos manuais.
+
 ## Docker vs desenvolvimento local (frontend)
 
 O serviço `frontend` no Docker **não** monta o código-fonte: a imagem corre `npm run build` e o Nginx serve o `dist` **da altura do último `docker compose build frontend`**.

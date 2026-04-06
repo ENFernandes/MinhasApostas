@@ -1,6 +1,6 @@
 export interface Match {
   id: string
-  sport: 'football' | 'tennis'
+  sport: 'football' | 'tennis' | 'manual'
   homeTeam: string
   awayTeam: string
   commenceTime: string
@@ -69,14 +69,15 @@ export interface Analysis {
 
 export interface BetResult {
   id: string
-  matchId: string
+  matchId: string | null
+  isManualEvent?: boolean
   match: Match
   recommendation: RecommendedMarket
   stakeActual: number
   oddActual: number
-  outcome: 'WIN' | 'LOSS' | 'VOID'
+  outcome: 'WIN' | 'LOSS' | 'VOID' | 'PENDING'
   profitLoss: number
-  settledAt: string
+  settledAt: string | null
 }
 
 export interface PerformanceStats {

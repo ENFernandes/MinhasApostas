@@ -1,12 +1,34 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Wallet, Calculator, Trophy } from 'lucide-react'
+import { X, Wallet, Calculator, Trophy, PenLine } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAppStore } from '@/stores/appStore'
 import { useRegisterBet } from '@/hooks/useApi'
 import { formatCurrency } from '@/lib/utils'
+import type { Analysis, RecommendedMarket } from '@/types'
+
+type StakeRec = RecommendedMarket & { odd_decimal?: number; id?: string }
+
+function pickStakeRecommendation(raw: unknown): StakeRec | null {
+  if (raw == null || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  if (o.recommendedMarket && typeof o.recommendedMarket === 'object') {
+    const rm = o.recommendedMarket as RecommendedMarket
+    const id =
+      typeof o.recommendationId === 'string'
+        ? o.recommendationId
+        : typeof o.id === 'string'
+          ? o.id
+          : undefined
+    return { ...rm, id }
+  }
+  if ('market' in o && 'outcome' in o) {
+    return raw as StakeRec
+  }
+  return null
+}
 
 export function StakeModal() {
   const {
@@ -20,16 +42,33 @@ export function StakeModal() {
   const registerBet = useRegisterBet()
   const [stake, setStake] = useState<number>(0)
   const [odd, setOdd] = useState<number>(0)
+  const [manualMarket, setManualMarket] = useState('')
+  const [manualSelection, setManualSelection] = useState('')
+  const [manualBookmaker, setManualBookmaker] = useState('')
 
-  const rec = stakeModalRecommendation
+  const rawPayload = stakeModalRecommendation as Analysis | RecommendedMarket | null
+  const rec = pickStakeRecommendation(rawPayload)
   const match = stakeModalMatch
+  const isManual = rec == null
 
   useEffect(() => {
     if (rec) {
       const suggestedOdd = rec.odd_decimal || rec.odd || 0
       setOdd(suggestedOdd)
+    } else {
+      setOdd(0)
     }
   }, [rec])
+
+  useEffect(() => {
+    if (!isStakeModalOpen) {
+      setManualMarket('')
+      setManualSelection('')
+      setManualBookmaker('')
+      setStake(0)
+      setOdd(0)
+    }
+  }, [isStakeModalOpen])
 
   // Ensure the modal is rendered at the document root to avoid being clipped
   // by any parent with transforms/overflow.
@@ -37,22 +76,25 @@ export function StakeModal() {
 
   const handleSubmit = async () => {
     if (!selectedMatchId || stake <= 0 || odd <= 0) return
+    if (isManual) {
+      if (!manualMarket.trim() || !manualSelection.trim()) return
+    }
 
     await registerBet.mutateAsync({
       recommendationId: rec?.id || '00000000-0000-0000-0000-000000000000',
       matchId: selectedMatchId,
-      market: rec?.market || 'N/A',
-      outcome: rec?.outcome || 'N/A',
-      bookmaker: rec?.bookmaker || 'N/A',
+      market: isManual ? manualMarket.trim() : rec?.market || 'N/A',
+      ...(isManual ? { betSelection: manualSelection.trim() } : {}),
+      bookmaker: isManual
+        ? (manualBookmaker.trim() || 'Manual')
+        : rec?.bookmaker || 'N/A',
       stakeActual: stake,
       oddActual: odd,
-      outcome2: 'PENDING',
+      outcome: 'PENDING',
       profitLoss: 0,
     })
 
     closeStakeModal()
-    setStake(0)
-    setOdd(0)
   }
 
   return (
@@ -85,7 +127,7 @@ export function StakeModal() {
                     <CardHeader className="flex flex-row items-center justify-between">
                       <CardTitle className="flex items-center gap-2 text-xl">
                         <Wallet className="w-5 h-5 text-gold-400" />
-                        Registar Aposta
+                        {isManual ? 'Aposta manual' : 'Registar Aposta'}
                       </CardTitle>
                       <Button
                         variant="ghost"
@@ -128,6 +170,48 @@ export function StakeModal() {
                         <p className="text-xs text-slate-400">Casa</p>
                         <p className="font-medium text-slate-200">{rec.bookmaker || 'N/A'}</p>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {isManual && (
+                  <div className="p-3 rounded-lg bg-navy-800/50 border border-navy-600 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
+                      <PenLine className="w-4 h-4 text-slate-400" />
+                      Sem sugestão da IA — preencha a sua aposta
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Mercado</label>
+                      <input
+                        type="text"
+                        value={manualMarket}
+                        onChange={(e) => setManualMarket(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-navy-900 border border-navy-700
+                          focus:border-gold-500 focus:ring-1 focus:ring-gold-500 outline-none text-sm"
+                        placeholder="ex.: 1X2, Over/Under 2.5"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Seleção</label>
+                      <input
+                        type="text"
+                        value={manualSelection}
+                        onChange={(e) => setManualSelection(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-navy-900 border border-navy-700
+                          focus:border-gold-500 focus:ring-1 focus:ring-gold-500 outline-none text-sm"
+                        placeholder="ex.: Casa, Over 2.5, Jogador A"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Casa de apostas (opcional)</label>
+                      <input
+                        type="text"
+                        value={manualBookmaker}
+                        onChange={(e) => setManualBookmaker(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg bg-navy-900 border border-navy-700
+                          focus:border-gold-500 focus:ring-1 focus:ring-gold-500 outline-none text-sm"
+                        placeholder="ex.: Betclic"
+                      />
                     </div>
                   </div>
                 )}
@@ -233,7 +317,12 @@ export function StakeModal() {
                              hover:from-gold-400 hover:to-gold-300
                              disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={handleSubmit}
-                  disabled={stake <= 0 || odd <= 0 || registerBet.isPending}
+                  disabled={
+                    stake <= 0 ||
+                    odd <= 0 ||
+                    registerBet.isPending ||
+                    (isManual && (!manualMarket.trim() || !manualSelection.trim()))
+                  }
                 >
                   {registerBet.isPending ? 'A registar...' : 'Confirmar Aposta'}
                 </Button>

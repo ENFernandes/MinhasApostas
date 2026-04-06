@@ -187,13 +187,27 @@ public class RegisterBetRequest
 {
     public Guid RecommendationId { get; set; }
     public Guid? MatchId { get; set; }
+    /// <summary>Texto livre do evento quando não existe <see cref="MatchId"/> (ex.: equipas, competição).</summary>
+    public string? ManualEventLabel { get; set; }
+    /// <summary>football | tennis | manual</summary>
+    public string? ManualSport { get; set; }
     public string? Market { get; set; }
+    /// <summary>Seleção da aposta (ex.: "Casa", "Over 2.5"). Usado em apostas sem recomendação.</summary>
+    public string? BetSelection { get; set; }
     public string? Bookmaker { get; set; }
     public decimal StakeActual { get; set; }
     public decimal OddActual { get; set; }
-    public string Outcome { get; set; } = string.Empty; // WIN, LOSS, VOID
+    public string Outcome { get; set; } = string.Empty; // WIN, LOSS, VOID, PENDING (ou legado: seleção quando BetSelection vazio)
     public decimal ProfitLoss { get; set; }
     public string? Notes { get; set; }
+}
+
+/// <summary>
+/// Request to settle a pending bet (WIN, LOSS, VOID).
+/// </summary>
+public class SettleBetRequest
+{
+    public string Outcome { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -251,7 +265,9 @@ public class GetRecommendationsRequest
 public class BetResultDto
 {
     public Guid Id { get; set; }
-    public Guid MatchId { get; set; }
+    public Guid? MatchId { get; set; }
+    /// <summary>True quando a aposta foi registada sem jogo na BD (só texto livre).</summary>
+    public bool IsManualEvent { get; set; }
     public MatchDto Match { get; set; } = null!;
     public RecommendedMarketDto Recommendation { get; set; } = null!;
     public decimal StakeActual { get; set; }

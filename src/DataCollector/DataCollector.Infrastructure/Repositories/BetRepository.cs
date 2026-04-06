@@ -23,6 +23,7 @@ public class BetRepository : IBetRepository, IScopedService
         return await _context.Bets
             .Include(b => b.Match).ThenInclude(m => m!.HomeTeam)
             .Include(b => b.Match).ThenInclude(m => m!.AwayTeam)
+            .Include(b => b.Match).ThenInclude(m => m!.Competition)
             .Include(b => b.Recommendation)
             .Where(b => b.Result == "WIN" || b.Result == "LOSS" || b.Result == "VOID")
             .OrderByDescending(b => b.SettledAt)
@@ -35,6 +36,7 @@ public class BetRepository : IBetRepository, IScopedService
         return await _context.Bets
             .Include(b => b.Match).ThenInclude(m => m!.HomeTeam)
             .Include(b => b.Match).ThenInclude(m => m!.AwayTeam)
+            .Include(b => b.Match).ThenInclude(m => m!.Competition)
             .Include(b => b.Recommendation)
             .Where(b => b.Result == "PENDING")
             .OrderByDescending(b => b.PlacedAt)
@@ -122,7 +124,7 @@ public class BetRepository : IBetRepository, IScopedService
 
         // Group by sport
         var bySport = settledBets
-            .GroupBy(b => b.Match?.Sport ?? "unknown")
+            .GroupBy(b => b.Match?.Sport ?? b.ManualSport ?? "unknown")
             .Select(g => new PerformanceBySport
             {
                 Sport = g.Key,

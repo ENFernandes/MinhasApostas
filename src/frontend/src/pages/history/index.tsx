@@ -17,33 +17,49 @@ import { PerformanceByMarket } from '@/components/PerformanceByMarket'
 import { PerformanceBySport } from '@/components/PerformanceBySport'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
-import { usePerformanceStats, useBetHistory, usePendingBets } from '@/hooks/useApi'
+import { Button } from '@/components/ui/button'
+import { usePerformanceStats, useBetHistory, usePendingBets, useSettleBet } from '@/hooks/useApi'
 import { formatCurrency, formatPercentage } from '@/lib/utils'
 import type { BetResult } from '@/types'
 
-function calculateChartData(bets: BetResult[] | undefined) {
+/** Jogos normais: "A vs B". Evento só texto (manual): só o rótulo, sem " vs ". */
+function formatBetEventLabel(bet: BetResult): string {
+  const m = bet.match
+  if (!m) return '—'
+  const home = m.homeTeam?.trim() ?? ''
+  const away = m.awayTeam?.trim() ?? ''
+  if (!home && !away) return '—'
+  if (!away) return home
+  return `${home} vs ${away}`
+}
+
+function calculateChartData(bets: BetResult[] | undefined): { date: string; value: number }[] {
   if (!bets || bets.length === 0) return []
-  
-  const sortedBets = [...bets]
-    .filter((b) => !!b?.settledAt)
-    .sort((a, b) => new Date(a.settledAt).getTime() - new Date(b.settledAt).getTime())
-  
+
+  const withDate = bets.filter(
+    (b): b is BetResult & { settledAt: string } =>
+      typeof b.settledAt === 'string' && b.settledAt.length > 0
+  )
+
+  const sortedBets = [...withDate].sort(
+    (a, b) => new Date(a.settledAt).getTime() - new Date(b.settledAt).getTime()
+  )
+
   let cumulativeValue = 100
-  const chartData = sortedBets.map((bet) => {
+  return sortedBets.map((bet) => {
     cumulativeValue += bet.profitLoss
     return {
       date: bet.settledAt,
       value: cumulativeValue,
     }
   })
-  
-  return chartData
 }
 
 export default function HistoryPage() {
   const { data: stats } = usePerformanceStats()
   const { data: betHistory, isLoading: isLoadingBets } = useBetHistory()
   const { data: pendingBets, isLoading: isLoadingPending } = usePendingBets()
+  const settleBet = useSettleBet()
 
   const chartData = calculateChartData(betHistory)
 
@@ -293,7 +309,7 @@ export default function HistoryPage() {
                                 {bet.settledAt ? new Date(bet.settledAt).toLocaleDateString('pt-PT') : '—'}
                               </td>
                               <td className="py-4 px-4 font-medium">
-                                {bet.match?.homeTeam} vs {bet.match?.awayTeam}
+                                {formatBetEventLabel(bet)}
                               </td>
                               <td className="py-4 px-4 text-center">
                                 <span
@@ -341,23 +357,27 @@ export default function HistoryPage() {
                           <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Odd</th>
                           <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Stake</th>
                           <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Potencial</th>
+                          <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Resultado</th>
                         </tr>
                       </thead>
                       <tbody>
                         {isLoadingPending ? (
                           <tr>
-                            <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                            <td colSpan={6} className="py-8 text-center text-muted-foreground">
                               A carregar apostas pendentes...
                             </td>
                           </tr>
                         ) : !pendingBets || pendingBets.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                            <td colSpan={6} className="py-8 text-center text-muted-foreground">
                               Nenhuma aposta pendente
                             </td>
                           </tr>
                         ) : (
-                          pendingBets.map((bet, index) => (
+                          pendingBets.map((bet, index) => {
+                            const settlingThis =
+                              settleBet.isPending && settleBet.variables?.betId === bet.id
+                            return (
                             <motion.tr
                               key={bet.id}
                               initial={{ opacity: 0, x: -20 }}
@@ -366,10 +386,10 @@ export default function HistoryPage() {
                               className="border-b border-navy-800 hover:bg-navy-800/30 transition-colors"
                             >
                               <td className="py-4 px-4 font-medium">
-                                {bet.match?.homeTeam} vs {bet.match?.awayTeam}
+                                {formatBetEventLabel(bet)}
                               </td>
                               <td className="py-4 px-4 text-sm">
-                                {bet.recommendation?.market} - {bet.recommendation?.outcome}
+                                {bet.recommendation?.market} — {bet.recommendation?.outcome}
                               </td>
                               <td className="py-4 px-4 text-center font-mono">
                                 {bet.oddActual.toFixed(2)}
@@ -380,8 +400,49 @@ export default function HistoryPage() {
                               <td className="py-4 px-4 text-right font-mono text-emerald-400">
                                 +{formatCurrency(bet.stakeActual * (bet.oddActual - 1))}
                               </td>
+                              <td className="py-4 px-4 text-right">
+                                <div className="flex flex-wrap gap-1 justify-end">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={settlingThis}
+                                    className="h-8 text-xs border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+                                    onClick={() =>
+                                      settleBet.mutate({ betId: bet.id, outcome: 'WIN' })
+                                    }
+                                  >
+                                    Ganhou
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={settlingThis}
+                                    className="h-8 text-xs border-red-500/40 text-red-400 hover:bg-red-500/10"
+                                    onClick={() =>
+                                      settleBet.mutate({ betId: bet.id, outcome: 'LOSS' })
+                                    }
+                                  >
+                                    Perdeu
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={settlingThis}
+                                    className="h-8 text-xs border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+                                    onClick={() =>
+                                      settleBet.mutate({ betId: bet.id, outcome: 'VOID' })
+                                    }
+                                  >
+                                    Anulada
+                                  </Button>
+                                </div>
+                              </td>
                             </motion.tr>
-                          ))
+                            )
+                          })
                         )}
                       </tbody>
                     </table>

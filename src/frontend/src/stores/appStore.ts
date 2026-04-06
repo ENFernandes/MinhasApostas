@@ -7,6 +7,8 @@ interface AppState {
   selectedSport: 'all' | 'football' | 'tennis'
   selectedCompetition: string | null
   isStakeModalOpen: boolean
+  /** Modal para escolher desporto + jogo e registar aposta sem IA (próx. 14 dias). */
+  isManualBetModalOpen: boolean
   selectedMatchId: string | null
   stakeModalRecommendation: any | null
   stakeModalMatch: any | null
@@ -24,8 +26,11 @@ interface AppState {
   // Actions
   setSelectedSport: (sport: 'all' | 'football' | 'tennis') => void
   setSelectedCompetition: (competition: string | null) => void
-  openStakeModal: (matchId: string, match?: any, recommendation?: any) => void
+  /** recommendation omitido ou null = fluxo de aposta manual (sem sugestão da IA). */
+  openStakeModal: (matchId: string, match?: any, recommendation?: any | null) => void
   closeStakeModal: () => void
+  openManualBetModal: () => void
+  closeManualBetModal: () => void
   openAnalysisModal: (matchId: string) => void
   closeAnalysisModal: () => void
   setMinOddFilter: (value: number | null) => void
@@ -43,6 +48,7 @@ export const useAppStore = create<AppState>()(
       selectedSport: 'all',
       selectedCompetition: null,
       isStakeModalOpen: false,
+      isManualBetModalOpen: false,
       selectedMatchId: null,
       stakeModalRecommendation: null,
       stakeModalMatch: null,
@@ -79,6 +85,8 @@ export const useAppStore = create<AppState>()(
         stakeModalMatch: null,
         stakeModalRecommendation: null,
       }),
+      openManualBetModal: () => set({ isManualBetModalOpen: true }),
+      closeManualBetModal: () => set({ isManualBetModalOpen: false }),
       openAnalysisModal: (matchId) => set({ isAnalysisModalOpen: true, selectedAnalysisMatchId: matchId }),
       closeAnalysisModal: () => set({ isAnalysisModalOpen: false, selectedAnalysisMatchId: null }),
       setMinOddFilter: (value) => set({ minOddFilter: value }),

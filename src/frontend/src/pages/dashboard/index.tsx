@@ -1,10 +1,13 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Trophy, 
   TrendingUp, 
-  Sparkles
+  Sparkles,
+  HandCoins,
+  ListFilter
 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { MatchCard } from '@/components/MatchCard'
 import { StakeModal } from '@/components/StakeModal'
 import { AnalysisDetailModal } from '@/components/AnalysisDetailModal'
@@ -14,6 +17,8 @@ import { useAppStore } from '@/stores/appStore'
 import { formatCurrency } from '@/lib/utils'
 
 export default function DashboardPage() {
+  const [manualBetMode, setManualBetMode] = useState(false)
+
   // Limit dashboard to matches that are played today (local time)
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
@@ -27,6 +32,7 @@ export default function DashboardPage() {
     selectedAnalysisMatchId,
     openAnalysisModal,
     closeAnalysisModal,
+    openManualBetModal,
     minOddFilter,
     maxOddFilter,
     minValueFilter,
@@ -132,6 +138,16 @@ export default function DashboardPage() {
     })
   }, [matches, selectedSport, recommendationsMap, minOddFilter, maxOddFilter, minValueFilter, minConfidenceFilter])
 
+  const matchesForManualMode = useMemo(() => {
+    if (!matches) return []
+    return matches.filter((match) => {
+      if (selectedSport !== 'all' && match.sport !== selectedSport) return false
+      return true
+    })
+  }, [matches, selectedSport])
+
+  const displayMatches = manualBetMode ? matchesForManualMode : filteredMatches
+
   const stats = {
     // Count recommendations that are visible in the current match list.
     todayBets: filteredMatches.filter((m) => {
@@ -194,12 +210,52 @@ export default function DashboardPage() {
         </div>
 
         {/* Section Title */}
-        <div className="flex items-center gap-2 mb-6">
-          <Sparkles className="w-5 h-5 text-gold-400" />
-          <h2 className="text-xl font-display font-semibold">Oportunidades do Dia</h2>
-          <span className="px-2 py-0.5 rounded-full bg-gold-500/10 text-gold-400 text-xs font-medium border border-gold-500/20">
-            {filteredMatches.length} jogos
-          </span>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+          <div className="flex flex-wrap items-center gap-2">
+            {manualBetMode ? (
+              <HandCoins className="w-5 h-5 text-amber-400" />
+            ) : (
+              <Sparkles className="w-5 h-5 text-gold-400" />
+            )}
+            <h2 className="text-xl font-display font-semibold">
+              {manualBetMode ? 'Jogos de hoje' : 'Oportunidades do Dia'}
+            </h2>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+                manualBetMode
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                  : 'bg-gold-500/10 text-gold-400 border-gold-500/20'
+              }`}
+            >
+              {displayMatches.length} jogos
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="bg-amber-500 text-navy-950 hover:bg-amber-400"
+              onClick={() => openManualBetModal()}
+            >
+              <ListFilter className="w-4 h-4 mr-2" />
+              Escolher desporto e jogo
+            </Button>
+            <Button
+              type="button"
+              variant={manualBetMode ? 'default' : 'outline'}
+              size="sm"
+              className={
+                manualBetMode
+                  ? 'bg-navy-700 text-slate-100 hover:bg-navy-600'
+                  : 'border-navy-600 hover:bg-navy-800'
+              }
+              onClick={() => setManualBetMode((v) => !v)}
+            >
+              <HandCoins className="w-4 h-4 mr-2" />
+              {manualBetMode ? 'Ver só sugestões IA' : 'Lista de hoje (manual)'}
+            </Button>
+          </div>
         </div>
 
         {/* Matches Grid */}
@@ -211,7 +267,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredMatches.map((match, index) => (
+            {displayMatches.map((match, index) => (
               <motion.div
                 key={match.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -221,6 +277,7 @@ export default function DashboardPage() {
                 <MatchCard
                   match={match}
                   analysis={recommendationsMap[match.id]}
+                  allowManualBet={manualBetMode}
                   onViewDetails={() => {
                     openAnalysisModal(match.id)
                     runAnalysis({ matchId: match.id })
@@ -232,14 +289,18 @@ export default function DashboardPage() {
         )}
 
         {/* Empty State */}
-        {!isLoading && filteredMatches.length === 0 && (
+        {!isLoading && displayMatches.length === 0 && (
           <div className="text-center py-16">
             <TrendingUp className="w-16 h-16 mx-auto text-navy-600 mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground">
-              Nenhuma oportunidade encontrada
+              {manualBetMode
+                ? 'Nenhum jogo encontrado para hoje'
+                : 'Nenhuma oportunidade encontrada'}
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Tente ajustar os filtros ou volte mais tarde
+              {manualBetMode
+                ? 'Verifique o desporto seleccionado ou aguarde novos jogos.'
+                : 'Tente ajustar os filtros, use “Escolher desporto e jogo” ou volte mais tarde'}
             </p>
           </div>
         )}

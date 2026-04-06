@@ -7,7 +7,10 @@ public class BetEntity
 {
     public Guid Id { get; set; }
     public Guid? RecommendationId { get; set; }
-    public Guid MatchId { get; set; }
+    /// <summary>Null quando a aposta é registada só com texto livre (sem jogo na BD).</summary>
+    public Guid? MatchId { get; set; }
+    public string? ManualEventLabel { get; set; }
+    public string? ManualSport { get; set; }
     public string Market { get; set; } = string.Empty;
     public string Outcome { get; set; } = string.Empty;
     public string? Bookmaker { get; set; }

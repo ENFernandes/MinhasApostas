@@ -11,6 +11,7 @@ import {
   CalendarDays
 } from 'lucide-react'
 import DashboardPage from './pages/dashboard'
+import { ManualBetModal } from './components/manual-bet-modal'
 import HistoryPage from './pages/history'
 import SettingsPage from './pages/settings'
 import TodayMatchesPage from './pages/today'
@@ -91,7 +92,8 @@ function App() {
       <BrowserRouter>
         <div className="min-h-screen bg-background pb-20 lg:pb-0 lg:pt-20">
           <Navigation />
-          
+          <ManualBetModal />
+
           <AnimatePresence mode="wait">
               <Routes>
               <Route path="/" element={<DashboardPage />} />
